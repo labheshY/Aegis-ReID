@@ -40,6 +40,8 @@ class TrackerService:
         self.current_search_target = None
         self.loaded_target_id = None
         self.acquisition_target_id = None
+        self.acquisition_last_seen = None
+        self.acquisition_timeout = 5  # seconds  
 
         self.lock = threading.RLock()
 
@@ -209,13 +211,13 @@ class TrackerService:
                         "confidence": conf,
                         "camera_id": self.camera_id
                     }
-
-                    if (
-                        conf > float(settings["min_box_confidence"])
-                        and box_width > int(settings["min_box_width"])
-                        and box_height > int(settings["min_box_height"])
-                    ):
-                        if mode == "acquisition" and acquisition_target_id == track_id:
+                    if mode == "acquisition" and acquisition_target_id == track_id:
+                        self.acquisition_last_seen = time.time()    
+                        if (
+                            conf > float(settings["min_box_confidence"])
+                            and box_width > int(settings["min_box_width"])
+                            and box_height > int(settings["min_box_height"])
+                        ):
                             self._collect_acquisition_embedding(
                                 frame,
                                 x1,
@@ -227,7 +229,8 @@ class TrackerService:
                                 settings
                             )
 
-                        if mode == "search" and search_target_id:
+                    if mode == "search" and search_target_id:
+                        if ( conf > 0.4 and box_width > 40 and box_height > 80):
                             target_label, similarity_score = self._run_reid_search(
                                 frame,
                                 x1,
@@ -249,6 +252,7 @@ class TrackerService:
             with self.lock:
                 self.active_tracks = frame_tracks
                 self.latest_frame = frame.copy()
+            self.check_acquisition_timeout()
             out.write(frame)
 
         self.is_running = False
@@ -257,6 +261,7 @@ class TrackerService:
         cv2.destroyAllWindows()
 
     def _collect_acquisition_embedding(self, frame, x1, y1, x2, y2, conf, track_id, settings):
+        self.acquisition_last_seen = time.time()
         if self.acquisition_manager.acquisition_complete:
             with self.lock:
                 self.acquisition_target_id = None
@@ -343,6 +348,7 @@ class TrackerService:
                 )
                 return None
             self.acquisition_target_id = track_id
+            self.acquisition_last_seen = time.time()
             self.mode = "acquisition"
 
         logger.info(f"Acquisition start for track ID {track_id}")
@@ -436,5 +442,29 @@ class TrackerService:
                 "frame_count": self.frame_count
             }
 
+    def check_acquisition_timeout(self):
+        should_stop = False
+        with self.lock:
+            if self.mode != "acquisition" or self.acquisition_target_id is None:
+                return
+            if self.acquisition_last_seen is None:
+                self.acquisition_last_seen = time.time()
+                return
+            if time.time() - self.acquisition_last_seen > self.acquisition_timeout:
+                logger.warning(
+                    f"Acquisition for track {self.acquisition_target_id} timed out"
+                )
+                if self.acquisition_manager.has_minimum_embeddings():
+                    logger.info(
+                        f"Auto saving acquisition "
+                        f"{len(self.acquisition_manager.get_embeddings())} embeddings collected"
+                    )
+                else:
+                    logger.warning(
+                        "Not enough embeddings collected to finalize acquisition"
+                    )
+                should_stop = True
+        if should_stop:
+            self.stop_acquisition()
 
 tracker_service = TrackerService()

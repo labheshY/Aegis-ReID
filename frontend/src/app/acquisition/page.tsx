@@ -289,9 +289,25 @@ export default function TargetAcquisitionPage() {
        setProgress(Math.min(100, Math.round((count / required) * 100)));
        setProgressStatus(`Collecting embeddings: ${count}/${required}`);
        if (data.complete) {
-         clearInterval(timer);
-         saveAcquiredTarget();
-       }
+          clearInterval(timer);
+          saveAcquiredTarget();
+          return;
+        }
+
+        if (!data.active) {
+          clearInterval(timer);
+
+          setProgressStatus(
+            count > 0
+              ? `Acquisition stopped (${count} embeddings collected)`
+              : 'Acquisition timed out'
+          );
+
+          setSelectedTrackId(null);
+          setStep('idle');
+
+          return;
+}
      }).catch(() => {
        setProgressStatus('Waiting for acquisition status...');
      });
@@ -610,7 +626,7 @@ export default function TargetAcquisitionPage() {
                  <div className="min-w-0 flex-1">
                    <span className="text-[9px] font-bold text-zinc-400 block uppercase">Vector Record Saved</span>
                    <span className="font-bold text-xs text-zinc-800 block truncate">{alias}</span>
-                   <span className="text-[10px] font-mono text-zinc-500 block mt-0.5">{acquiredTargetId} | 100 embeddings</span>
+                   <span className="text-[10px] font-mono text-zinc-500 block mt-0.5">{acquiredTargetId} | 10 embeddings</span>
                  </div>
                </div>
              </div>
