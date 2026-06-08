@@ -97,24 +97,42 @@ export default function TargetAcquisitionPage() {
    setSelectedCameraName(cam ? cam.name : selectedCamera);
  }, [selectedCamera, availableCameras]);
 
- useEffect(() => {
-   const loadTracks = async () => {
-     try {
-       const result = await api.getActiveTracks();
-       setTracks(
-         Object.entries(result.data).map(([id, track]: any) => ({
-           id,
-           ...track,
-         }))
-       );
-     } catch (err) {
-       console.error(err);
-     }
-   };
-   loadTracks();
-   const interval = setInterval(loadTracks, 1000);
-   return () => clearInterval(interval);
- }, []);
+useEffect(() => {
+  const loadTracks = async () => {
+    try {
+      const result = await api.getActiveTracks();
+
+      const tracksData = Object.entries(result.data).map(
+        ([id, track]: any) => ({
+          id,
+          ...track,
+        })
+      );
+
+      if (
+        step !== "collecting" &&
+        selectedTrackId &&
+        !tracksData.some(
+          (track) => String(track.id) === String(selectedTrackId)
+        )
+      ) {
+        setSelectedTrackId(null);
+        setStep("idle");
+        setProgressStatus("Selected track lost");
+      }
+
+      setTracks(tracksData);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  loadTracks();
+
+  const interval = setInterval(loadTracks, 1000);
+
+  return () => clearInterval(interval);
+}, [selectedTrackId]);
 
  // Live feed canvas rendering loop
  useEffect(() => {
