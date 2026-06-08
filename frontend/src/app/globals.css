@@ -1,0 +1,26 @@
+@import "tailwindcss";
+@import "../styles/tokens.css";
+@import "../styles/design-system.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base variables are defined in tokens.css */
+@layer base {
+  html, body, #__next {
+    height: 100%;
+  }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-ui), var(--font-sans);
+  }
+  a { color: inherit; }
+  button { font-family: inherit; }
+}
+
+@layer base {
+  .font-display { font-family: var(--font-display); }
+  .font-ui { font-family: var(--font-ui); }
+}

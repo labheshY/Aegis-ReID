@@ -1,0 +1,50 @@
+/* Aegis ReID — Obsidian Command Center design tokens */
+:root {
+  /* Warm-ivory + charcoal luxury palette */
+  --bg: #F6F2EC; /* warm ivory page background */
+  --bg-elevated: #F3EEE6; /* slightly deeper panel background */
+  --fg: #1F1F21; /* charcoal typography */
+  --fg-muted: #6F6D6A; /* soft charcoal for secondary text */
+  --surface: rgba(34, 34, 36, 0.04); /* subtle glass overlay */
+  --surface-solid: #EFEAE2; /* solid surface for cards */
+  --border: rgba(31, 31, 33, 0.06);
+  --border-strong: rgba(31, 31, 33, 0.12);
+
+  --primary: #B98B4B; /* warm gold accent */
+  --primary-glow: rgba(185, 139, 75, 0.12);
+  --accent: #8C6B3E;
+  --alert: #C94B4B;
+  --alert-muted: rgba(201, 75, 75, 0.08);
+  --glass: rgba(31, 31, 33, 0.03);
+  --glass-hover: rgba(31, 31, 33, 0.06);
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  /* Preferred premium font stack (load preferred fonts in globals.css or via next/font) */
+  --font-display: 'Playfair Display', 'Georgia', 'Times New Roman', serif;
+  --font-ui: 'Plus Jakarta Sans', 'Satoshi', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  /* Letter spacing tokens */
+  --tracking-tight: -0.02em;
+  --tracking-wide: 0.08em;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+
+  --shadow-sm: 0 6px 14px rgba(31, 31, 33, 0.06);
+  --shadow-md: 0 20px 60px rgba(31, 31, 33, 0.08);
+  --shadow-glow: 0 10px 50px var(--primary-glow);
+
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  --bg: #0b1220;
+  --bg-elevated: #111827;
+
+  --fg: #e5e7eb;
+  --fg-muted: #9ca3af;
+
+  --surface-solid: #1f2937;
+}
+  

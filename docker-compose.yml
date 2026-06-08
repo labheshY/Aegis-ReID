@@ -1,0 +1,27 @@
+version: '3.8'
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: aegis-reid-backend:latest
+    ports:
+      - '8000:8000'
+    volumes:
+      - ./data:/app/data
+    environment:
+      - LOG_LEVEL=INFO
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: aegis-reid-frontend:latest
+    ports:
+      - '3000:3000'
+    environment:
+      - BACKEND_URL=http://backend:8000
+    depends_on:
+      - backend
+    restart: unless-stopped

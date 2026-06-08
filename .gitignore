@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Model files
+models/
+*.pt
+*.onnx
+
+# Embeddings
+data/embeddings/
+data/previews/
+data/
+# Logs
+logs/
+*.log
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+#md
+md/
+
+#OUtput
+outputs/
+
+.pytest_cache/
+
+.env
+*.mp4
+
+frontend/AGENTS.md
+frontend/CLAUDE.md

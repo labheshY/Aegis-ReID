@@ -1,0 +1,51 @@
+/* Micro-animation and interaction utilities for premium UI */
+:root {
+  --spring-dur-fast: 180ms;
+  --spring-dur-medium: 260ms;
+  --spring-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.spring {
+  transition: transform var(--spring-dur-medium) var(--spring-ease), box-shadow var(--spring-dur-medium) var(--spring-ease), opacity var(--spring-dur-medium) var(--spring-ease);
+  will-change: transform;
+}
+
+.spring-fast {
+  transition-duration: var(--spring-dur-fast);
+}
+
+.pressable:active {
+  transform: scale(0.985);
+}
+
+.focus-glow:focus {
+  box-shadow: 0 6px 24px rgba(6,182,212,0.08), 0 0 28px rgba(6,182,212,0.08) inset;
+}
+
+.micro-shadow {
+  box-shadow: 0 6px 20px rgba(2,6,23,0.5);
+}
+
+/* quiet fade-in used for modals and popovers */
+@keyframes quiet-fade-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.995); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.quiet-fade-in {
+  animation: quiet-fade-in 280ms var(--spring-ease) both;
+}
+
+.aegis-panel {
+  background: var(--surface-solid);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.aegis-stat-glow {  
+  transition: all 0.25s ease;
+}
+
+.aegis-stat-glow:hover {
+  box-shadow: var(--shadow-md);
+}

@@ -1,0 +1,17 @@
+ultralytics
+opencv-python
+numpy
+scipy
+filterpy
+lap
+onnx
+onnxruntime-directml
+faiss-cpu
+fastapi
+uvicorn
+torch
+torchvision
+facenet-pytorch
+pytest
+python-multipart
+cryptography

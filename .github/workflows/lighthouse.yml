@@ -1,0 +1,31 @@
+name: Lighthouse CI
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  lighthouse:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install frontend deps
+        working-directory: frontend
+        run: |
+          npm ci
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+      - name: Install lighthouse-ci
+        run: npm install -g @lhci/cli@0.11.x serve
+      - name: Run LHCI
+        working-directory: frontend
+        env:
+          LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_TOKEN }}
+        run: |
+          lhci autorun --config=.lighthouserc.json
