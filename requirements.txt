@@ -5,7 +5,7 @@ scipy
 filterpy
 lap
 onnx
-onnxruntime-directml
+onnxruntime
 faiss-cpu
 fastapi
 uvicorn
