@@ -15,3 +15,5 @@ facenet-pytorch
 pytest
 python-multipart
 cryptography
+dotenv
+torchreid
