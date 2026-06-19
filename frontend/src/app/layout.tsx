@@ -3,8 +3,8 @@ import { Playfair_Display, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { UiProvider } from "../providers/ui-provider";
 import { TargetProvider } from "../providers/target-provider";
-import { Sidebar } from "../components/layout/sidebar";
-import { Navbar } from "../components/layout/navbar";
+import { Sidebar } from '../components/layout/sidebar';
+import { Navbar } from '../components/layout/navbar';
 import { CommandPalette } from "../components/ui/command-palette";
 import { ToastProvider } from "../components/ui/toast";
 

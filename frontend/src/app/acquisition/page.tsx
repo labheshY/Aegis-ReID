@@ -2,14 +2,13 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
+ Radio,
  ScanFace, 
- Play, 
- Camera, 
  RotateCcw, 
  UserPlus, 
  CheckCircle2, 
  Activity,
- Maximize2
+ Square
 } from 'lucide-react';
 import { useTargets } from '../../providers/target-provider';
 import { AvatarCrop } from '../../components/ui/avatar-crop';
@@ -18,6 +17,36 @@ import { cn } from '../../lib/utils';
 import { api } from '../../services/api';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
+import { PageHeader } from '../../components/layout/page-header';
+
+type ActiveTrack = {
+  id: string;
+  bbox: [number, number, number, number];
+  confidence?: number;
+  camera_id?: string;
+};
+
+type CameraOption = {
+  id: string;
+  name?: string;
+};
+
+function getContainedViewport(containerWidth: number, containerHeight: number) {
+  const contentWidth = 640;
+  const contentHeight = 360;
+  const scale = Math.min(containerWidth / contentWidth, containerHeight / contentHeight);
+  const width = contentWidth * scale;
+  const height = contentHeight * scale;
+
+  return {
+    x: (containerWidth - width) / 2,
+    y: (containerHeight - height) / 2,
+    width,
+    height,
+    scaleX: width / contentWidth,
+    scaleY: height / contentHeight,
+  };
+}
 
 export default function TargetAcquisitionPage() {
  const router = useRouter();
@@ -25,7 +54,7 @@ export default function TargetAcquisitionPage() {
  
  // Acquisition States: 'idle' | 'selecting' | 'collecting' | 'completed'
  const [step, setStep] = useState<'idle' | 'selecting' | 'collecting' | 'completed'>('idle');
- const [tracks, setTracks] = useState<any[]>([]);
+ const [tracks, setTracks] = useState<ActiveTrack[]>([]);
  const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
 
  // Forms
@@ -47,8 +76,10 @@ export default function TargetAcquisitionPage() {
  const imageRef = useRef<HTMLImageElement>(null);
  const videoRef = useRef<HTMLVideoElement>(null);
  const [selectedCamera, setSelectedCamera] = useState<string | null>(null);
- const [selectedCameraName, setSelectedCameraName] = useState<string | null>(null);
- const [availableCameras, setAvailableCameras] = useState<any[]>([]);
+ const [availableCameras, setAvailableCameras] = useState<CameraOption[]>([]);
+ const selectedCameraName = selectedCamera
+   ? availableCameras.find((camera) => camera.id === selectedCamera)?.name ?? selectedCamera
+   : null;
 
  useEffect(() => {
    return () => {
@@ -56,31 +87,28 @@ export default function TargetAcquisitionPage() {
    };
  }, []);
 
- // start local webcam when no camera selected
- useEffect(() => {
-   let mounted = true;
-   async function startLocal() {
-     if (selectedCamera) return;
-     try {
-       const s = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-       if (!mounted) return;
-       const v = videoRef.current;
-       if (v) v.srcObject = s;
+  // start local webcam when no camera selected
+  useEffect(() => {
+    let mounted = true;
+    let stream: MediaStream | null = null;
+    async function startLocal() {
+      if (selectedCamera) return;
+      try {
+        const s = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        stream = s;
+        if (!mounted) return;
+        const v = videoRef.current;
+        if (v) v.srcObject = s;
      } catch (err) {
        console.warn('Local camera unavailable', err);
      }
    }
    startLocal();
-   return () => {
-     mounted = false;
-     try {
-       const v = videoRef.current;
-       const s = v?.srcObject as MediaStream | undefined;
-       s?.getTracks().forEach((t) => t.stop());
-       if (v) v.srcObject = null;
-     } catch (e) {}
-   };
- }, [selectedCamera]);
+    return () => {
+      mounted = false;
+      stream?.getTracks().forEach((track) => track.stop());
+    };
+  }, [selectedCamera]);
 
  useEffect(() => {
    let mounted = true;
@@ -88,22 +116,49 @@ export default function TargetAcquisitionPage() {
    return () => { mounted = false; };
  }, []);
 
- useEffect(() => {
-   if (!selectedCamera) {
-     setSelectedCameraName(null);
-     return;
-   }
-   const cam = availableCameras.find((c) => c.id === selectedCamera);
-   setSelectedCameraName(cam ? cam.name : selectedCamera);
- }, [selectedCamera, availableCameras]);
+  useEffect(() => {
+    if (!selectedCamera) return;
+
+    let cancelled = false;
+
+    fetch(`/api/v1/cameras/${encodeURIComponent(selectedCamera)}/activate`, {
+      method: 'POST',
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || 'Failed to activate selected camera');
+        }
+        if (!cancelled) {
+          setProgressStatus('Waiting for tracker detections...');
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setProgressStatus(err instanceof Error ? err.message : String(err));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCamera]);
+
+  const handleCameraChange = (id: string | null) => {
+    setSelectedCamera(id);
+    setTracks([]);
+    setSelectedTrackId(null);
+    setStep('idle');
+    setProgressStatus(id ? 'Switching tracker to selected camera...' : '');
+  };
 
 useEffect(() => {
   const loadTracks = async () => {
     try {
       const result = await api.getActiveTracks();
 
-      const tracksData = Object.entries(result.data).map(
-        ([id, track]: any) => ({
+      const tracksData = Object.entries(result.data as Record<string, Omit<ActiveTrack, 'id'>>).map(
+        ([id, track]) => ({
           id,
           ...track,
         })
@@ -132,7 +187,7 @@ useEffect(() => {
   const interval = setInterval(loadTracks, 1000);
 
   return () => clearInterval(interval);
-}, [selectedTrackId]);
+}, [selectedTrackId, step]);
 
  // Live feed canvas rendering loop
  useEffect(() => {
@@ -171,13 +226,12 @@ useEffect(() => {
        const [x1, y1, x2, y2] = track.bbox;
        
        // Coordinate Scaling Factors (Mapping 640x360 backend stream bounds to dynamic Canvas layout)
-       const scaleX = width / 640;
-       const scaleY = height / 360;
-       
-       const x = x1 * scaleX;
-       const y = y1 * scaleY;
-       const w = (x2 - x1) * scaleX;
-       const h = (y2 - y1) * scaleY;
+        const viewport = getContainedViewport(width, height);
+        
+        const x = viewport.x + x1 * viewport.scaleX;
+        const y = viewport.y + y1 * viewport.scaleY;
+        const w = (x2 - x1) * viewport.scaleX;
+        const h = (y2 - y1) * viewport.scaleY;
        
        // Draw partial bounding corners for high-tech aesthetic
        const cornerLen = 14;
@@ -251,8 +305,21 @@ useEffect(() => {
    const rect = canvas.getBoundingClientRect();
    
    // Normalized coordinates relative to canvas layout element boundary
-   const clickX = ((e.clientX - rect.left) / rect.width) * 640;
-   const clickY = ((e.clientY - rect.top) / rect.height) * 360;
+    const viewport = getContainedViewport(rect.width, rect.height);
+    const localX = e.clientX - rect.left - viewport.x;
+    const localY = e.clientY - rect.top - viewport.y;
+
+    if (
+      localX < 0 ||
+      localY < 0 ||
+      localX > viewport.width ||
+      localY > viewport.height
+    ) {
+      return;
+    }
+
+    const clickX = localX / viewport.scaleX;
+    const clickY = localY / viewport.scaleY;
 
    const selected = tracks.find((track) => {
      const [x1, y1, x2, y2] = track.bbox;
@@ -282,9 +349,9 @@ useEffect(() => {
      setStep('collecting');
      setProgress(0);
      setProgressStatus('Initializing facial extraction networks...');
-   } catch (err: any) {
-     console.error('Acquisition start failed', err);
-     setProgressStatus(err?.message ?? 'Failed to start acquisition');
+    } catch (err: unknown) {
+      console.error('Acquisition start failed', err);
+      setProgressStatus(err instanceof Error ? err.message : 'Failed to start acquisition');
    }
  };
 
@@ -345,12 +412,26 @@ useEffect(() => {
  };
 
  return (
-   <div className="flex-1 p-8 space-y-8 max-w-7xl mx-auto w-full font-ui">
-     {/* Header */}
-     <div className="flex flex-col gap-1 select-none">
-       <h1 className="text-3xl font-display font-semibold text-[color:var(--fg)] tracking-[var(--tracking-tight)]">Biometric Acquisition</h1>
-       <p className="text-sm text-[color:var(--fg-muted)]">Capture, register, and save new subject identities directly from active camera feeds.</p>
-     </div>
+   <div className="max-w-7xl mx-auto w-full space-y-8 font-ui">
+     <PageHeader
+        badge="IDENTITY ENROLLMENT"
+        title="Biometric Acquisition"
+        description="Capture, register, and save new subject identities directly from active camera feeds."
+        actions={
+                  <div className="flex items-center gap-3">
+                    {/* Node Selector Tag */}
+                    <div className="flex items-center gap-2 text-[10px] font-mono text-zinc-400 border border-[#1e293b] rounded-lg px-3 py-2 bg-[#0f172a] shadow-inner">
+                      <Radio className="w-3 h-3 text-emerald-500 animate-pulse" />
+                      <span className="tracking-wider">SELECT CAMERA</span>
+                    </div>
+        
+                    {/* Styled Dropdown Module */}
+                    <div className="w-38">
+                      <CameraSelector value={selectedCamera} onChange={handleCameraChange} />
+                    </div>
+                  </div>
+                }
+      />
      
      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
        {/* Left Side: Live Feed Canvas */}
@@ -365,7 +446,7 @@ useEffect(() => {
              
              <img
                ref={imageRef}
-               src={api.getStreamUrlForCamera(selectedCamera)}
+                src={api.getStreamUrl()}
                alt="Live acquisition stream"
                className={cn(
                  "w-full h-full object-contain block",
@@ -416,12 +497,6 @@ useEffect(() => {
        
        {/* Right Side: Configuration Sidebar panel */}
        <div className="lg:col-span-4 bg-[color:var(--surface)] border border-[color:var(--border)] rounded-2xl p-6 min-h-[460px] flex flex-col justify-between">
-         <div className="mb-4">
-           <label className="text-[10px] font-semibold text-[color:var(--fg-muted)] uppercase">Select Camera</label>
-           <div className="mt-3">
-             <CameraSelector value={selectedCamera} onChange={(id) => { setSelectedCamera(id); setSelectedCameraName(id); }} />
-           </div>
-         </div>
          
          {/* STEP 1: Idle instructions */}
          {step === 'idle' && (
@@ -436,200 +511,269 @@ useEffect(() => {
          
          {/* STEP 2: Selected and editing alias info */}
          {step === 'selecting' && (
-           <div className="space-y-5 flex-1 flex flex-col justify-between h-full">
-             <div>
-               <h3 className="font-semibold text-xs text-zinc-400 uppercase tracking-wider font-mono">Capture Register</h3>
-               <div className="mt-4 flex gap-4 items-center">
-                 <AvatarCrop seed={acquiredSeed} alias="Capture" status="tracked" className="w-16 h-16 rounded-xl" />
-                 <div>
-                   <span className="text-[10px] font-bold text-zinc-400 uppercase">Selected Target</span>
-                   <span className="block font-mono font-bold text-sm text-zinc-800">Subject #ID-{acquiredSeed}</span>
-                 </div>
-               </div>
-               
-               <div className="space-y-4 mt-6 text-xs select-none">
-                 {/* Alias */}
-                 <div className="space-y-1.5">
-                   <Input label="Subject Alias Name" placeholder="e.g. John Doe / Unknown Subject #02" value={alias} onChange={(e) => setAlias(e.target.value)} />
-                 </div>
-                 
-                 {/* Attributes */}
-                 <div className="grid grid-cols-2 gap-3">
-                   <div className="space-y-1.5">
-                     <label className="text-[9px] font-bold text-zinc-400 uppercase">Age Class</label>
-                     <select value={age} onChange={(e) => setAge(e.target.value)} className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl outline-none text-zinc-800">
-                       <option>Under 20</option>
-                       <option>20-30</option>
-                       <option>30-40</option>
-                       <option>40-50</option>
-                       <option>Over 50</option>
-                     </select>
-                   </div>
-                   
-                   <div className="space-y-1.5">
-                     <label className="text-[9px] font-bold text-zinc-400 uppercase">Gender Est.</label>
-                     <select value={gender} onChange={(e) => setGender(e.target.value)} className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl outline-none text-zinc-800">
-                       <option>Male</option>
-                       <option>Female</option>
-                       <option>Other</option>
-                     </select>
-                   </div>
-                 </div>
-                 
-                 {/* Clothes */}
-                 <div className="grid grid-cols-2 gap-3">
-                   <div className="space-y-1.5">
-                     <label className="text-[9px] font-bold text-zinc-400 uppercase">Upper Garment</label>
-                     <input type="text" placeholder="Blue Hoodie" value={clothingUpper} onChange={(e) => setClothingUpper(e.target.value)} className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl outline-none text-zinc-800" />
-                   </div>
-                   
-                   <div className="space-y-1.5">
-                     <label className="text-[9px] font-bold text-zinc-400 uppercase">Lower Garment</label>
-                     <input type="text" placeholder="Jeans" value={clothingLower} onChange={(e) => setClothingLower(e.target.value)} className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl outline-none text-zinc-800" />
-                   </div>
-                 </div>
-                 
-                 {/* Notes */}
-                 <div className="space-y-1.5">
-                   <label className="text-[9px] font-bold text-zinc-400 uppercase">Security Notes</label>
-                   <textarea placeholder="Observation details..." rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl outline-none font-sans text-zinc-800" />
-                 </div>
-               </div>
-             </div>
-             
-             {/* Action */}
-             <div className="flex items-center gap-3 pt-6 border-t border-zinc-100 select-none">
-               <Button className="w-1/2 flex items-center justify-center gap-1.5" variant="ghost" onClick={handleReset}>
-                 <RotateCcw className="w-3.5 h-3.5" />
-                 <span>Release Lock</span>
-               </Button>
-               <Button className="w-1/2 flex items-center justify-center gap-1.5" onClick={handleStartAcquisition} disabled={!alias.trim() || !selectedTrackId}>
-                 <UserPlus className="w-3.5 h-3.5" />
-                 <span>Acquire Target</span>
-               </Button>
-             </div>
-           </div>
-         )}
+            <div className="space-y-5 flex-1 flex flex-col justify-between h-full select-none">
+              <div>
+                {/* Step Header Title */}
+                <h3 className="font-bold text-[10px] text-zinc-500 uppercase tracking-wider font-mono">
+                   Capture Register
+                </h3>
+                
+                {/* Target Asset Identity Profile Metadata Header */}
+                <div className="mt-4 flex gap-4 items-center bg-[#090d16]/40 border border-[#141c2c] p-3 rounded-xl">
+                  <AvatarCrop 
+                    seed={acquiredSeed} 
+                    alias="Capture" 
+                    status="tracked" 
+                    className="w-14 h-14 rounded-lg shrink-0 border border-[#1e293b]/50" 
+                  />
+                  <div className="space-y-0.5 min-w-0">
+                    <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block">Selected Target Node</span>
+                    <span className="block font-mono font-bold text-xs text-cyan-400 truncate">
+                      Subject #ID-{acquiredSeed}
+                    </span>
+                  </div>
+                </div>
+                
+                {/* Dark Theme Operations Form Grid Frame */}
+                <div className="space-y-4 mt-5 text-xs">
+                  
+                  {/* Identity Alias Name Form Input */}
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">Subject Alias Name</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. John Doe / Unknown Subject #02" 
+                      value={alias} 
+                      onChange={(e) => setAlias(e.target.value)} 
+                      className="w-full h-8 px-3 bg-[#090d16] border border-[#1e293b] text-zinc-200 placeholder-zinc-600 rounded-lg outline-none text-xs font-semibold focus:border-cyan-500/50 transition-colors"
+                    />
+                  </div>
+                  
+                  {/* Soft Demographics Estimated Attributes (Age & Gender) */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">Age Class</label>
+                      <select 
+                        value={age} 
+                        onChange={(e) => setAge(e.target.value)} 
+                        className="w-full h-8 px-2 bg-[#090d16] border border-[#1e293b] text-zinc-300 rounded-lg outline-none text-xs font-semibold cursor-pointer focus:border-cyan-500/50"
+                      >
+                        <option className="bg-[#0f172a]">Under 20</option>
+                        <option className="bg-[#0f172a]">20-30</option>
+                        <option className="bg-[#0f172a]">30-40</option>
+                        <option className="bg-[#0f172a]">40-50</option>
+                        <option className="bg-[#0f172a]">Over 50</option>
+                      </select>
+                    </div>
+                    
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">Gender Est.</label>
+                      <select 
+                        value={gender} 
+                        onChange={(e) => setGender(e.target.value)} 
+                        className="w-full h-8 px-2 bg-[#090d16] border border-[#1e293b] text-zinc-300 rounded-lg outline-none text-xs font-semibold cursor-pointer focus:border-cyan-500/50"
+                      >
+                        <option className="bg-[#0f172a]">Male</option>
+                        <option className="bg-[#0f172a]">Female</option>
+                        <option className="bg-[#0f172a]">Other</option>
+                      </select>
+                    </div>
+                  </div>
+                  
+                  {/* Upper/Lower Garment Tracker Parameters Fields */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">Upper Garment</label>
+                      <input 
+                        type="text" 
+                        placeholder="Blue Hoodie" 
+                        value={clothingUpper} 
+                        onChange={(e) => setClothingUpper(e.target.value)} 
+                        className="w-full h-8 px-3 bg-[#090d16] border border-[#1e293b] text-zinc-200 placeholder-zinc-600 rounded-lg outline-none text-xs font-semibold focus:border-cyan-500/50 transition-colors" 
+                      />
+                    </div>
+                    
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">Lower Garment</label>
+                      <input 
+                        type="text" 
+                        placeholder="Jeans" 
+                        value={clothingLower} 
+                        onChange={(e) => setClothingLower(e.target.value)} 
+                        className="w-full h-8 px-3 bg-[#090d16] border border-[#1e293b] text-zinc-200 placeholder-zinc-600 rounded-lg outline-none text-xs font-semibold focus:border-cyan-500/50 transition-colors" 
+                      />
+                    </div>
+                  </div>
+                  
+                  {/* Operation Security Notes Callout Textarea */}
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">Security Notes</label>
+                    <textarea 
+                      placeholder="Observation details..." 
+                      rows={2} 
+                      value={notes} 
+                      onChange={(e) => setNotes(e.target.value)} 
+                      className="w-full px-3 py-2 bg-[#090d16] border border-[#1e293b] text-zinc-200 placeholder-zinc-600 rounded-lg outline-none font-sans text-xs font-medium focus:border-cyan-500/50 resize-none leading-relaxed" 
+                    />
+                  </div>
+                </div>
+              </div>
+              
+              {/* Uniform Action Controllers (Using clean h-8 rounded-full pills) */}
+              <div className="flex items-center gap-3 pt-4 border-t border-[#141c2c] select-none shrink-0">
+                <button 
+                  type="button"
+                  onClick={handleReset}
+                  className="w-1/2 flex items-center justify-center gap-1.5 h-8 px-0 border border-[#1e293b] bg-[#0f172a] hover:bg-[#1e293b] text-zinc-400 hover:text-zinc-200 rounded-full text-xs font-semibold cursor-pointer transition-colors" 
+                >
+                  <RotateCcw className="w-3.5 h-3.5 shrink-0" />
+                  <span>Release Lock</span>
+                </button>
+
+                <button 
+                  type="button"
+                  onClick={handleStartAcquisition} 
+                  disabled={!alias.trim() || !selectedTrackId}
+                  className="w-1/2 flex items-center justify-center gap-1.5 h-8 px-0 bg-cyan-100/10 hover:bg-cyan-500/20 border border-cyan-500/25 text-cyan-400 disabled:opacity-30 disabled:pointer-events-none rounded-full text-xs font-semibold cursor-pointer transition-colors"
+                >
+                  <UserPlus className="w-3.5 h-3.5 shrink-0" />
+                  <span>Acquire Target</span>
+                </button>
+              </div>
+            </div>
+          )}
+
          
          {/* STEP 3: Progress indicators */}
          {step === 'collecting' && (
-           <div className="flex-1 flex flex-col justify-center select-none py-6 space-y-6">
-             <div className="flex flex-col items-center justify-center">
-               <div className="relative w-16 h-16 flex items-center justify-center">
-                 <div className="absolute inset-0 rounded-full border-4 border-zinc-100" />
+            <div className="flex-1 flex flex-col select-none py-4 space-y-5">
+              
+              {/* 1. Isolated State Status Radar Animation Block */}
+              <div className="flex flex-col items-center justify-center py-2">
+                <div className="relative w-14 h-14 flex items-center justify-center">
+                  {/* Clean scanning/pulse effects matching your dark dashboard */}
+                  <span className="absolute inset-0 rounded-full bg-rose-500/10 animate-ping" />
+                  <div className="absolute inset-0 rounded-full border-2 border-rose-500/20" />
+                  <div className="absolute inset-1 rounded-full border-2 border-dashed border-rose-500/40 animate-spin [animation-duration:10s]" />
+                  {/* Heart/Pulse Core Node Indicator Icon */}
+                  <div className="w-2 h-2 rounded-full bg-rose-500 shadow-[0_0_8px_#f43f5e]" />
+                </div>
+                <div className="text-center mt-2.5 space-y-0.5">
+                  <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block">Acquisition Active</span>
+                  <span className="text-xs font-mono font-bold text-rose-400 tracking-wide block">ACQUIRING: TRACK_{selectedTrackId || '2080'}</span>
+                </div>
+                <div className="flex justify-between text-xs font-mono">
+                  <span className="text-zinc-500">Vector Accumulation</span>
+                  <span className="font-bold text-zinc-800">{progress}%</span>
+                </div>
+                <div className="h-2 bg-zinc-100 rounded-full overflow-hidden">
+                  <div className="h-full bg-red-500 transition-all duration-300 rounded-full" style={{ width: `${progress}%` }} />
+                </div>
+                
+                <p className="text-[10px] font-mono text-zinc-400 text-center leading-relaxed italic mt-3 min-h-[30px]">
+                  {progressStatus}
+                </p>
+              </div>
 
-                 {/* Attributes */}
-                 <div className="grid grid-cols-2 gap-3">
-                   <div className="space-y-1.5">
-                     <label className="text-[9px] font-bold text-zinc-400 uppercase">Age Class</label>
-                     <select 
-                       value={age} 
-                       onChange={(e) => setAge(e.target.value)} 
-                       className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl outline-none text-zinc-800"
-                     >
-                       <option>Under 20</option>
-                       <option>20-30</option>
-                       <option>30-40</option>
-                       <option>40-50</option>
-                       <option>Over 50</option>
-                     </select>
-                   </div>
-                   
-                   <div className="space-y-1.5">
-                     <label className="text-[9px] font-bold text-zinc-400 uppercase">Gender Est.</label>
-                     <select 
-                       value={gender} 
-                       onChange={(e) => setGender(e.target.value)} 
-                       className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl outline-none text-zinc-800"
-                     >
-                       <option>Male</option>
-                       <option>Female</option>
-                       <option>Other</option>
-                     </select>
-                   </div>
-                 </div>
-                 
-                 {/* Clothes */}
-                 <div className="grid grid-cols-2 gap-3">
-                   <div className="space-y-1.5">
-                     <label className="text-[9px] font-bold text-zinc-400 uppercase">Upper Garment</label>
-                     <input 
-                       type="text" 
-                       placeholder="Blue Hoodie" 
-                       value={clothingUpper} 
-                       onChange={(e) => setClothingUpper(e.target.value)} 
-                       className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl outline-none text-zinc-800" 
-                     />
-                   </div>
-                   
-                   <div className="space-y-1.5">
-                     <label className="text-[9px] font-bold text-zinc-400 uppercase">Lower Garment</label>
-                     <input 
-                       type="text" 
-                       placeholder="Jeans" 
-                       value={clothingLower} 
-                       onChange={(e) => setClothingLower(e.target.value)} 
-                       className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl outline-none text-zinc-800" 
-                     />
-                   </div>
-                 </div>
-                 
-                 {/* Notes */}
-                 <div className="space-y-1.5">
-                   <label className="text-[9px] font-bold text-zinc-400 uppercase">Security Notes</label>
-                   <textarea 
-                     placeholder="Observation details..." 
-                     rows={2} 
-                     value={notes} 
-                     onChange={(e) => setNotes(e.target.value)} 
-                     className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl outline-none font-sans text-zinc-800" 
-                   />
-                 </div>
-               </div>
-             </div>
-             
-             {/* Action Control Blocks */}
-             <div className="flex items-center gap-3 pt-6 border-t border-zinc-100 select-none">
-               <Button className="w-1/2 flex items-center justify-center gap-1.5" variant="ghost" onClick={handleReset}>
-                 <RotateCcw className="w-3.5 h-3.5" />
-                 <span>Release Lock</span>
-               </Button>
-               <Button className="w-1/2 flex items-center justify-center gap-1.5" onClick={handleStartAcquisition} disabled={!alias.trim() || !selectedTrackId}>
-                 <UserPlus className="w-3.5 h-3.5" />
-                 <span>Acquire Target</span>
-               </Button>
-             </div>
-           </div>
-         )}
-         
-         {/* STEP 3: Progress Embedding Vector Accumulation Indicators */}
-         {step === 'collecting' && (
-           <div className="flex-1 flex flex-col justify-center select-none py-6 space-y-6">
-             <div className="flex flex-col items-center justify-center">
-               <div className="relative w-16 h-16 flex items-center justify-center">
-                 <div className="absolute inset-0 rounded-full border-4 border-zinc-100" />
-                 <div className="absolute inset-0 rounded-full border-4 border-t-red-500 border-r-transparent border-b-transparent border-l-transparent animate-spin" />
-                 <Activity className="w-6 h-6 text-red-500 animate-pulse" />
-               </div>
-               <h3 className="font-bold text-sm text-zinc-900 mt-4">Collecting Embeddings</h3>
-               <span className="text-[10px] font-mono text-zinc-400 font-bold uppercase tracking-wider mt-1">Acquiring: {alias}</span>
-             </div>
-             
-             <div className="space-y-2">
-               <div className="flex justify-between text-xs font-mono">
-                 <span className="text-zinc-500">Vector Accumulation</span>
-                 <span className="font-bold text-zinc-800">{progress}%</span>
-               </div>
-               <div className="h-2 bg-zinc-100 rounded-full overflow-hidden">
-                 <div className="h-full bg-red-500 transition-all duration-300 rounded-full" style={{ width: `${progress}%` }} />
-               </div>
-               <p className="text-[10px] font-mono text-zinc-400 text-center leading-relaxed italic mt-3 min-h-[30px]">
-                 {progressStatus}
-               </p>
-             </div>
-           </div>
-         )}
-         
+              {/* 2. Structured Inputs Form Framework Area (Safely Extracted Outside) */}
+              <div className="flex-1 space-y-4 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-zinc-800">
+                
+                {/* Target Identity Alias Header input field if missing */}
+                <div className="space-y-1.5">
+                  <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">Identity Alias</label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g. Subject Alpha" 
+                    value={alias} 
+                    onChange={(e) => setAlias(e.target.value)} 
+                    className="w-full h-8 px-3 bg-[#090d16] border border-[#1e293b] text-zinc-200 placeholder-zinc-600 rounded-lg outline-none text-xs font-semibold focus:border-cyan-500/50 transition-colors" 
+                  />
+                </div>
+
+                {/* Attributes Grid Row (Age & Gender) */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">Age Class</label>
+                    <select 
+                      value={age} 
+                      onChange={(e) => setAge(e.target.value)} 
+                      className="w-full h-8 px-2 bg-[#090d16] border border-[#1e293b] text-zinc-300 rounded-lg outline-none text-xs font-semibold cursor-pointer focus:border-cyan-500/50"
+                    >
+                      <option className="bg-[#0f172a]">Under 20</option>
+                      <option className="bg-[#0f172a]">20-30</option>
+                      <option className="bg-[#0f172a]">30-40</option>
+                      <option className="bg-[#0f172a]">40-50</option>
+                      <option className="bg-[#0f172a]">Over 50</option>
+                    </select>
+                  </div>
+                  
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">Gender Est.</label>
+                    <select 
+                      value={gender} 
+                      onChange={(e) => setGender(e.target.value)} 
+                      className="w-full h-8 px-2 bg-[#090d16] border border-[#1e293b] text-zinc-300 rounded-lg outline-none text-xs font-semibold cursor-pointer focus:border-cyan-500/50"
+                    >
+                      <option className="bg-[#0f172a]">Male</option>
+                      <option className="bg-[#0f172a]">Female</option>
+                      <option className="bg-[#0f172a]">Other</option>
+                    </select>
+                  </div>
+                </div>
+                
+                {/* Clothing Features Grid Row */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">Upper Garment</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. Blue Hoodie" 
+                      value={clothingUpper} 
+                      onChange={(e) => setClothingUpper(e.target.value)} 
+                      className="w-full h-8 px-3 bg-[#090d16] border border-[#1e293b] text-zinc-200 placeholder-zinc-600 rounded-lg outline-none text-xs font-semibold focus:border-cyan-500/50 transitions-colors" 
+                    />
+                  </div>
+                  
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">Lower Garment</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. Jeans" 
+                      value={clothingLower} 
+                      onChange={(e) => setClothingLower(e.target.value)} 
+                      className="w-full h-8 px-3 bg-[#090d16] border border-[#1e293b] text-zinc-200 placeholder-zinc-600 rounded-lg outline-none text-xs font-semibold focus:border-cyan-500/50 transitions-colors" 
+                    />
+                  </div>
+                </div>
+                
+                {/* Notes Textarea Field Section */}
+                <div className="space-y-1.5">
+                  <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">Security Agent Notes</label>
+                  <textarea 
+                    placeholder="Observation details..." 
+                    rows={3} 
+                    value={notes} 
+                    onChange={(e) => setNotes(e.target.value)} 
+                    className="w-full px-3 py-2 bg-[#090d16] border border-[#1e293b] text-zinc-200 placeholder-zinc-600 rounded-lg outline-none font-sans text-xs font-medium focus:border-cyan-500/50 resize-none leading-relaxed" 
+                  />
+                </div>
+              </div>
+              
+              {/* 3. Single Action Capsule Controller Panel (Centered layout configuration) */}
+              <div className="flex items-center justify-center pt-4 border-t border-[#141c2c] select-none shrink-0 w-full">
+                <button 
+                  type="button"
+                  onClick={handleReset} // Or your specific stopEmbedding state cleanup function handler
+                  // Kept w-full or you can set a fixed width like w-44 to match your standard input dropdown dimensions
+                  className="w-44 flex items-center justify-center gap-1.5 h-8 px-4 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/25 text-rose-400 rounded-full text-xs font-semibold cursor-pointer transition-colors" 
+                >
+                  <Square className="w-2.5 h-2.5 fill-current shrink-0" />
+                  <span>Stop Embedding</span>
+                </button>
+              </div>
+            </div>
+          )}
+
          {/* STEP 4: Completed Registration Status View */}
          {step === 'completed' && (
            <div className="flex-1 flex flex-col justify-between select-none h-full">

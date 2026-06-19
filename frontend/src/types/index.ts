@@ -11,7 +11,7 @@ export interface Camera {
   id: string;
   name: string;
   url: string;
-  status: 'online' | 'offline';
+  status: 'online' | 'offline' | 'connecting';
   resolution: string;
   fps: number;
 }

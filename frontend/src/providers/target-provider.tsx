@@ -3,14 +3,12 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { Target, Camera, TrackingEvent, TrackerSettings } from '../types';
 import { api } from '../services/api';
-import { generateRandomEvent } from '../services/mockData';
 import { useUi } from './ui-provider';
 
 interface TargetContextType {
   targets: Target[];
   cameras: Camera[];
   events: TrackingEvent[];
-  settings: TrackerSettings;
   activeTargetId: string | null;
   setActiveTargetId: (id: string | null) => void;
   activeSearchIds: string[];
@@ -20,11 +18,19 @@ interface TargetContextType {
   acquireNewTarget: (alias: string, metadata?: any) => Promise<Target>;
   deleteTarget: (id: string) => Promise<void>;
   updateTargetDetails: (id: string, alias: string, metadata?: any) => Promise<void>;
-  startSearch: (id: string) => Promise<void>;
+  startSearch: (id: string, trackingMode: 'person' | 'face' | 'hybrid') => Promise<void>;
   stopSearch: (id: string) => Promise<void>;
-  updateSettings: (settings: TrackerSettings) => void;
   setCameras: React.Dispatch<React.SetStateAction<Camera[]>>;
   clearEvents: () => void;
+  // Search UI State
+  searchCameras: string[];
+  setSearchCameras: React.Dispatch<React.SetStateAction<string[]>>;
+  searchSimilarityFeed: number[];
+  setSearchSimilarityFeed: React.Dispatch<React.SetStateAction<number[]>>;
+  searchIsPlaying: boolean;
+  setSearchIsPlaying: React.Dispatch<React.SetStateAction<boolean>>;
+  searchTrackingMode: 'face' | 'person' | 'hybrid';
+  setSearchTrackingMode: React.Dispatch<React.SetStateAction<'face' | 'person' | 'hybrid'>>;
 }
 
 const TargetContext = createContext<TargetContextType | undefined>(undefined);
@@ -35,12 +41,17 @@ export const TargetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [targets, setTargets] = useState<Target[]>([]);
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [events, setEvents] = useState<TrackingEvent[]>([]);
-  const [settings, setSettings] = useState<TrackerSettings>(api.getSettings());
   const [activeTargetId, setActiveTargetId] = useState<string | null>(null);
   const [activeSearchIds, setActiveSearchIds] = useState<string[]>([]);
   
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Search UI State Persistence
+  const [searchCameras, setSearchCameras] = useState<string[]>(["CAM-01", "CAM-02", "CAM-03", "CAM-04"]);
+  const [searchSimilarityFeed, setSearchSimilarityFeed] = useState<number[]>([92, 94, 91, 95, 94, 96, 93, 94, 95, 96]);
+  const [searchIsPlaying, setSearchIsPlaying] = useState(true);
+  const [searchTrackingMode, setSearchTrackingMode] = useState<'face' | 'person' | 'hybrid'>('person');
 
   // Refs for loop integration
   const targetsRef = useRef<Target[]>([]);
@@ -52,8 +63,8 @@ export const TargetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   useEffect(() => { targetsRef.current = targets; }, [targets]);
   useEffect(() => { camerasRef.current = cameras; }, [cameras]);
   useEffect(() => { activeSearchIdsRef.current = activeSearchIds; }, [activeSearchIds]);
-
   // Load and refresh state
+
   const loadData = useCallback(async () => {
     try {
       const fetchedTargets = await api.getTargets();
@@ -75,20 +86,7 @@ export const TargetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setTargets(fetchedTargets);
       setCameras(fetchedCameras);
       setActiveSearchIds(activeIds);
-      
-      if (backendSettings) {
-        setSettings(prev => {
-          const updated = {
-            ...prev,
-            similarityThreshold: backendSettings.similarity_threshold ?? prev.similarityThreshold,
-            confirmationThreshold: backendSettings.target_confirmation ? backendSettings.target_confirmation / 10 : prev.confirmationThreshold,
-            frameInterval: backendSettings.reid_frame_interval ? backendSettings.reid_frame_interval * 33 : prev.frameInterval,
-            softDecay: backendSettings.use_soft_decay ?? prev.softDecay,
-          };
-          api.saveSettings(updated);
-          return updated;
-        });
-      }
+
       
       setError(null);
     } catch (err: any) {
@@ -178,19 +176,19 @@ export const TargetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [addToast]);
 
   // Start Search (POST /search/start)
-  const startSearch = useCallback(async (id: string) => {
+  const startSearch = useCallback(async (id: string, trackingMode: 'person' | 'face' | 'hybrid') => {
     try {
       const target = targets.find(t => t.id === id);
       const aliasName = target ? target.alias : `Subject #${id}`;
       
       await api.setRuntimeMode('search');
-      await api.startSearch(id);
+      await api.startSearch(id, trackingMode);
       
       setActiveSearchIds(prev => [...new Set([...prev, id])]);
       
       addToast({
         title: "Tracking Corridor Initialized",
-        description: `Active search launched for appearance signature: ${aliasName}.`,
+        description: `Active ${trackingMode} search launched for appearance signature: ${aliasName}.`,
         type: "red-lock"
       });
     } catch (err: any) {
@@ -233,29 +231,6 @@ export const TargetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setTargets(prev => [newTarget, ...prev]);
     return newTarget;
   }, []);
-
-  const updateSettings = useCallback((newSettings: TrackerSettings) => {
-    setSettings(newSettings);
-    api.saveSettings(newSettings);
-    
-    // Synchronize settings with the FastAPI backend inference loop
-    api.updateTrackerSettings({
-      similarity_threshold: newSettings.similarityThreshold,
-      use_soft_decay: newSettings.softDecay,
-      // Map frontend frameInterval (ms) to backend frame count (at ~30 fps)
-      reid_frame_interval: Math.max(1, Math.round(newSettings.frameInterval / 33)),
-      // Map confirmationThreshold (e.g. 0.85) to target_confirmation frames count
-      target_confirmation: Math.max(1, Math.round(newSettings.confirmationThreshold * 10))
-    }).catch(err => {
-      console.error("Failed to update backend tracker settings:", err);
-    });
-
-    addToast({
-      title: "Settings Sync Completed",
-      description: "Tracker hyperparameters updated in local storage and backend.",
-      type: "info"
-    });
-  }, [addToast]);
 
   const clearEvents = useCallback(() => {
     setEvents([]);
@@ -348,7 +323,6 @@ export const TargetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         targets,
         cameras,
         events,
-        settings,
         activeTargetId,
         setActiveTargetId,
         activeSearchIds,
@@ -360,9 +334,16 @@ export const TargetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         updateTargetDetails,
         startSearch,
         stopSearch,
-        updateSettings,
         setCameras,
-        clearEvents
+        clearEvents,
+        searchCameras,
+        setSearchCameras,
+        searchSimilarityFeed,
+        setSearchSimilarityFeed,
+        searchIsPlaying,
+        setSearchIsPlaying,
+        searchTrackingMode,
+        setSearchTrackingMode
       }}
     >
       {children}

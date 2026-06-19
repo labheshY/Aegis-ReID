@@ -1,12 +1,13 @@
 @import "tailwindcss";
 @import "../styles/tokens.css";
 @import "../styles/design-system.css";
+@import "@fontsource/playfair-display/index.css";
+@import "@fontsource/plus-jakarta-sans/index.css";
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-/* Base variables are defined in tokens.css */
+  
 @layer base {
   html, body, #__next {
     height: 100%;

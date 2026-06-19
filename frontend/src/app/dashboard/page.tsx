@@ -107,12 +107,26 @@ export default function DashboardPage() {
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 min-h-[480px]">
-        <div className="lg:col-span-5 min-h-[480px]">
-          <RecentDetections />
-        </div>
-        <div className="lg:col-span-7 min-h-[480px]">
-          <ActivityFeed />
+      {/* Parent Flex Column Box Container */}
+      <div className="space-y-4 w-full h-full">
+        
+        {/* Terminal Layout Grid Core */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 min-h-[480px] h-[calc(100vh-240px)] pointer-events-auto">
+          
+          {/* COLUMN 1 (5/12 Width): RECENT DETECTIONS TERMINAL CHANNEL */}
+          <div className="lg:col-span-5 h-full flex flex-col min-w-0">
+            <div className="flex-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent">
+              <RecentDetections />
+            </div>
+          </div>
+
+          {/* COLUMN 2 (7/12 Width): LIVE ACTIVITY FEED ENGINE TRACK */}
+          <div className="lg:col-span-7 h-full flex flex-col min-w-0">
+            <div className="flex-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent">
+              <ActivityFeed />
+            </div>
+          </div>
+          
         </div>
       </div>
       <div className="aegis-panel p-6 select-none">

@@ -4,7 +4,7 @@ import { DEFAULT_CAMERAS, DEFAULT_SETTINGS } from './mockData';
 // Allow overriding the API base URL in development via NEXT_PUBLIC_API_BASE_URL.
 // If not set, use the relative proxy path handled by Next.js (`/api/v1`).
 const _envBase = process.env.NEXT_PUBLIC_API_BASE_URL;
-const BASE_URL = _envBase ? _envBase.replace(/\/$/, '') : '/api/v1';
+const BASE_URL = _envBase ? _envBase.replace(/\/$/, '') : 'http://localhost:8000/api/v1';
 export type RuntimeMode = 'idle' | 'acquisition' | 'search';
 export interface ActiveTrack {
   bbox: [number, number, number, number];
@@ -61,11 +61,11 @@ class ApiClient {
   }
 
   // POST /search/start
-  async startSearch(targetId: string): Promise<{ success: boolean }> {
+  async startSearch(targetId: string, trackingMode: string): Promise<{ success: boolean }> {
     const res = await fetch(`${BASE_URL}/search/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target_id: targetId })
+      body: JSON.stringify({ target_id: targetId, tracking_mode: trackingMode })
     });
     if (!res.ok) throw new Error(`Failed to start search for target ${targetId}`);
     return res.json();
@@ -210,15 +210,53 @@ class ApiClient {
     return response.json();
   }
   // Settings sync
-  getSettings(): TrackerSettings {
-    if (typeof window === 'undefined') return DEFAULT_SETTINGS;
-    const settings = localStorage.getItem('reid_settings');
-    return settings ? JSON.parse(settings) : DEFAULT_SETTINGS;
+  async getSettings() {
+    const res = await fetch(
+      `${BASE_URL}/settings`
+    );
+
+    const payload = await res.json();
+
+    return payload.data;
+  } 
+
+  async updateSettings(
+    settings: any
+  ) {
+    const res = await fetch(
+      `${BASE_URL}/settings`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
+        body: JSON.stringify(
+          settings
+        ),
+      }
+    );
+    const payload =
+      await res.json();
+
+    return payload.data;
   }
 
-  saveSettings(settings: TrackerSettings) {
-    if (typeof window === 'undefined') return;
-    localStorage.setItem('reid_settings', JSON.stringify(settings));
+  async resetSettings() {
+    const res = await fetch(
+      `${BASE_URL}/settings/reset`,
+      {
+        method: "POST",
+      }
+    );
+
+    const payload = await res.json();
+
+    return payload.data;
+  }
+
+  async saveSettings(settings: any) {
+    return this.updateSettings(settings);
   }
 }
 

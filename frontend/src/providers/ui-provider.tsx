@@ -18,6 +18,8 @@ interface UiContextType {
   toasts: Toast[];
   addToast: (toast: Omit<Toast, 'id'>) => void;
   dismissToast: (id: string) => void;
+  isSidebarOpen: boolean;
+  setIsSidebarOpen: (open: boolean) => void;
 }
 
 const UiContext = createContext<UiContextType | undefined>(undefined);
@@ -26,6 +28,7 @@ export const UiProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [fullscreenCameraId, setFullscreenCameraId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true); // Default open state tracking
 
   // Listen for Cmd+K or Ctrl+K to toggle command palette
   useEffect(() => {
@@ -66,6 +69,8 @@ export const UiProvider: React.FC<{ children: React.ReactNode }> = ({ children }
         toasts,
         addToast,
         dismissToast,
+        isSidebarOpen,
+        setIsSidebarOpen,
       }}
     >
       {children}
