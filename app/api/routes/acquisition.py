@@ -9,6 +9,18 @@ router = APIRouter()
 
 @router.post("/start")
 def start_acquisition(request: AcquisitionStartRequest):
+    # Guard: reject if acquisition already in progress
+    current_status = tracker_service.get_acquisition_status()
+    if current_status.get("active"):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Acquisition already in progress "
+                f"(track_id={current_status.get('track_id')}). "
+                "Call POST /acquisition/stop first."
+            )
+        )
+
     # If the tracker isn't producing active tracks, return a helpful 503
     try:
         active = tracker_service.get_active_tracks()

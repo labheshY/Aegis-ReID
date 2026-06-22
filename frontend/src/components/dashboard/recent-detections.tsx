@@ -24,7 +24,7 @@ export const RecentDetections: React.FC = () => {
   };
 
   return (
-    <div className="aegis-panel p-5 flex flex-col h-full">
+    <div className="aegis-panel p-5 flex flex-col h-full min-h-0">
       <div className="flex items-center justify-between border-b border-white/[0.06] pb-4 mb-4">
         <div className="flex items-center gap-2">
           <Activity className="w-4 h-4 text-cyan-400" />
@@ -39,7 +39,7 @@ export const RecentDetections: React.FC = () => {
         </Link>
       </div>
 
-      <div className="flex-1 space-y-3 overflow-y-auto pr-1">
+      <div className="flex-1 min-h-0 space-y-3 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent">
         {detections.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center py-12 text-zinc-600 font-mono text-xs text-center">
             <span>No detections yet.</span>

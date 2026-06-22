@@ -9,7 +9,7 @@ export const ActivityFeed: React.FC = () => {
   const { events, clearEvents } = useTargets();
 
   return (
-    <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6 shadow-xl flex flex-col h-full text-zinc-300 font-mono">
+    <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6 shadow-xl flex flex-col h-full min-h-0 text-zinc-300 font-mono">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-zinc-800 pb-4 mb-4 select-none">
         <div className="flex items-center gap-2">
@@ -32,7 +32,7 @@ export const ActivityFeed: React.FC = () => {
       </div>
 
       {/* Terminal Output */}
-      <div className="flex-1 overflow-y-auto space-y-3.5 pr-1 text-[11px] leading-relaxed">
+      <div className="flex-1 min-h-0 overflow-y-auto space-y-3.5 pr-2 text-[11px] leading-relaxed scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent">
         {events.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center py-12 text-zinc-600 select-none">
             <span>[ SYSTEM IDLE - MONITORING LIVE FEEDS ]</span>

@@ -1,8 +1,10 @@
 from fastapi import APIRouter, UploadFile, Form, HTTPException
 from app.services.face_service import face_service
+from app.services.camera_manager import camera_manager
 from app.core.config import DEFAULT_TRACKER_SETTINGS
 from app.services.settings_service import settings_service
 from app.utils.similarity import cosine_similarity
+from app.reid.reid_model import generate_embedding
 import cv2
 import numpy as np
 
@@ -110,10 +112,8 @@ async def search_faces(file: UploadFile, mode: str | None = Form('hybrid')):
                 if ix2 > ix1 and iy2 > iy1:
                     # get reid score using current embeddings (approx) by extracting crop and embedding
                     try:
-                        frame_buf = camera_manager.get_frame(cam_id)
-                        if frame_buf:
-                            a = np.frombuffer(frame_buf, dtype='uint8')
-                            frame = cv2.imdecode(a, cv2.IMREAD_COLOR)
+                        frame = camera_manager.get_latest_frame(cam_id)
+                        if frame is not None:
                             person_crop = crop_image(frame, data['bbox'])
                             reid_emb = generate_embedding(person_crop)
                             rscore = cosine_similarity(face_emb, reid_emb)

@@ -115,16 +115,12 @@ export default function DashboardPage() {
           
           {/* COLUMN 1 (5/12 Width): RECENT DETECTIONS TERMINAL CHANNEL */}
           <div className="lg:col-span-5 h-full flex flex-col min-w-0">
-            <div className="flex-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent">
-              <RecentDetections />
-            </div>
+            <RecentDetections />
           </div>
 
           {/* COLUMN 2 (7/12 Width): LIVE ACTIVITY FEED ENGINE TRACK */}
           <div className="lg:col-span-7 h-full flex flex-col min-w-0">
-            <div className="flex-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent">
-              <ActivityFeed />
-            </div>
+            <ActivityFeed />
           </div>
           
         </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
   Search, 
@@ -8,23 +8,18 @@ import {
   ArrowUpDown, 
   Plus, 
   Trash2, 
-  Edit3, 
   Radar, 
-  Clock, 
-  Tag, 
   Database,
   Calendar,
   X,
   FileText,
   ScanFace,
-  UserCheck,
   ChevronDown
 } from 'lucide-react';
 import { useTargets } from '../../providers/target-provider';
 import { AvatarCrop } from '../../components/ui/avatar-crop';
 import { cn, formatDate } from '../../lib/utils';
 import { Target } from '../../types';
-import { Input } from '../../components/ui/input';
 import { Button } from '../../components/ui/button';
 import { PageHeader } from '../../components/layout/page-header';
 
@@ -36,7 +31,6 @@ export default function TargetGalleryPage() {
     deleteTarget, 
     updateTargetDetails,
     activeSearchIds,
-    startSearch,
     stopSearch
   } = useTargets();
 
@@ -46,10 +40,27 @@ export default function TargetGalleryPage() {
   const [sourceFilter, setSourceFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<string>('newest');
   const [activeMenu, setActiveMenu] = useState<'status' | 'source' | 'sort' | null>(null);
+  
+  // Face Profiles State
+  const [faceProfiles, setFaceProfiles] = useState<any[]>([]);
+
   // Modal State
   const [selectedTarget, setSelectedTarget] = useState<Target | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editAlias, setEditAlias] = useState('');
+
+  useEffect(() => {
+    async function fetchProfiles() {
+      try {
+        const res = await fetch('/api/v1/faces');
+        const json = await res.json();
+        setFaceProfiles(json.data || []);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+    fetchProfiles();
+  }, []);
 
   // Handle open details modal
   const handleOpenDetails = (target: Target) => {
@@ -75,7 +86,7 @@ export default function TargetGalleryPage() {
   // Filter camera names
   const uniqueCameras = Array.from(new Set(cameras.map(c => c.name)));
 
-  // Filter and Sort Logic
+  // Filter and Sort Logic for ReID
   const filteredTargets = targets
     .filter(t => {
       const aliasStr = t.alias ? String(t.alias).toLowerCase() : '';
@@ -106,6 +117,14 @@ export default function TargetGalleryPage() {
       return 0;
     });
 
+  // Filter Logic for Face Profiles
+  const filteredFaceProfiles = faceProfiles.filter(f => {
+    const aliasStr = f.alias ? String(f.alias).toLowerCase() : '';
+    const idStr = f.id ? String(f.id).toLowerCase() : '';
+    const searchLower = (searchQuery || '').toLowerCase();
+    return aliasStr.includes(searchLower) || idStr.includes(searchLower);
+  });
+
   return (
     <div className="max-w-7xl mx-auto w-full space-y-8 font-ui">
       <PageHeader
@@ -117,10 +136,7 @@ export default function TargetGalleryPage() {
             onClick={() =>    router.push('/acquisition')} 
             className="inline-flex items-center justify-center w-44 h-8 pl-1.5 pr-4 py-0 rounded-full text-xs font-semibold shrink-0 gap-1.5"
           >
-            {/* Plus Icon stays left */}
             <Plus className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-
-            {/* Text block with custom micro-offsets to shift it up and right */}
             <span className="text-[11px] font-semibold text-zinc-300 tracking-wide whitespace-nowrap -mt-[1px] pl-1.5">
             Acquire New Target
             </span>
@@ -128,11 +144,7 @@ export default function TargetGalleryPage() {
         }
       />
 
-
-
-
       <div className="flex flex-col md:flex-row items-center gap-3 p-4 select-none w-full">
-        
         {/* Search Inputs Section */}
         <div className="flex-1 flex items-center gap-3 w-full h-8 px-3 bg-[#0f172a] border border-[#1e293b] rounded-lg shadow-inner">
           <Search className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
@@ -147,8 +159,7 @@ export default function TargetGalleryPage() {
 
         {/* Filter Actions Section */}
         <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-          
-          {/* 1. Status Filter Trigger Module */}
+          {/* 1. Status Filter */}
           <div className="relative">
             <button 
               onClick={() => setActiveMenu(activeMenu === 'status' ? null : 'status')}
@@ -156,7 +167,6 @@ export default function TargetGalleryPage() {
             >
               <Filter className="w-3 h-3 text-zinc-500 shrink-0" />
               <span className="text-[11px] text-zinc-400 font-medium shrink-0">Status:</span>
-              {/* Added flex-1 text-left truncate to prevent resizing */}
               <span className="text-[11px] font-semibold text-cyan-400 capitalize flex-1 text-left truncate">
                 {statusFilter}
               </span>
@@ -185,7 +195,7 @@ export default function TargetGalleryPage() {
             )}
           </div>
 
-          {/* 2. Camera Source Filter Trigger Module */}
+          {/* 2. Source Filter */}
           <div className="relative">
             <button 
               onClick={() => setActiveMenu(activeMenu === 'source' ? null : 'source')}
@@ -193,7 +203,6 @@ export default function TargetGalleryPage() {
             >
               <Filter className="w-3 h-3 text-zinc-500 shrink-0" />
               <span className="text-[11px] text-zinc-400 font-medium shrink-0">Source:</span>
-              {/* Added flex-1 text-left truncate to lock width fluidly */}
               <span className="text-[11px] font-semibold text-cyan-400 flex-1 text-left truncate">
                 {sourceFilter === 'all' ? 'All' : sourceFilter}
               </span>
@@ -234,7 +243,7 @@ export default function TargetGalleryPage() {
             )}
           </div>
 
-          {/* 3. Sorting Filter Trigger Module */}
+          {/* 3. Sorting Filter */}
           <div className="relative">
             <button 
               onClick={() => setActiveMenu(activeMenu === 'sort' ? null : 'sort')}
@@ -242,7 +251,6 @@ export default function TargetGalleryPage() {
             >
               <ArrowUpDown className="w-3 h-3 text-zinc-500 shrink-0" />
               <span className="text-[11px] text-zinc-400 font-medium shrink-0">Sort:</span>
-              {/* Added flex-1 text-left truncate to control label size shifts */}
               <span className="text-[11px] font-semibold text-cyan-400 flex-1 text-left truncate">
                 {sortBy === 'newest' && 'Newest'}
                 {sortBy === 'oldest' && 'Oldest'}
@@ -280,133 +288,194 @@ export default function TargetGalleryPage() {
               </>
             )}
           </div>
-
         </div>
-
       </div>
 
-      {/* Targets Grid */}
-      {filteredTargets.length === 0 ? (
-        <div className="bg-[color:var(--surface)] border border-[color:var(--border)] rounded-2xl py-20 text-center select-none flex flex-col items-center justify-center">
-          <Database className="w-10 h-10 text-[color:var(--fg-muted)] mb-3" />
-          <span className="text-sm font-semibold text-[color:var(--fg)]">No Profiles Registered</span>
-          <span className="text-sm text-[color:var(--fg-muted)] mt-1">Try relaxing filters or run target acquisition.</span>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {filteredTargets.map((target) => {
-            const isActiveSearch = activeSearchIds.includes(target.id);
-            
-            return (
-              <div 
-                key={target.id}
-                onClick={() => handleOpenDetails(target)}
-                // Standardized outer container to group/card to decouple the text hover triggers cleanly
-                className="group/card bg-[#0b1220]/60 border border-[#141c2c] hover:border-[#1e2d42] rounded-2xl transition-all duration-300 hover:shadow-xl hover:shadow-cyan-500/[0.01] cursor-pointer flex flex-col"
-              >
-                {/* Surveillance profile image card */}
-                <div className="p-4 pb-0">
-                  <div className="relative w-full bg-[#070b14] rounded-xl overflow-hidden border border-[#162235]/60 group-hover/card:border-[#22344f] transition-all duration-300">
-                    <AvatarCrop 
-                      seed={parseInt(target.id, 10) || 50} 
-                      alias={target.alias} 
-                      status={isActiveSearch ? 'tracked' : 'idle'}
-                      previewImagePath={target.previewImagePath}
-                      // Image scales smoothly on container focus hover
-                      className="w-full rounded-xl opacity-85 group-hover/card:opacity-100 group-hover/card:scale-[1.02] transition-all duration-500 ease-out"
-                    />
-                  </div>
-                </div>
-
-                {/* Title Description details */}
-                <div className="p-5 flex-1 flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center justify-between gap-2 border-b border-[#141c2c]/80 pb-2">
-                      <h3 className="font-display font-bold text-sm text-zinc-200 truncate group-hover/card:text-white transition-colors tracking-tight">
-                        {target.alias}
-                      </h3>
-                      {/* Styled ID tracking tag configuration */}
-                      <span className="text-[9px] font-mono font-bold text-sky-400/80 bg-sky-950/30 border border-sky-900/30 px-1.5 py-0.5 rounded tracking-wide shrink-0">
-                        ID: {target.id}
-                      </span>
-                    </div>
-                    
-                    {/* Enhanced Metadata block with distinctive icon accent anchors */}
-                    <div className="space-y-2 mt-3 text-[11px] text-zinc-400 font-medium">
-                      <div className="flex items-center gap-2">
-                        <Calendar className="w-3.5 h-3.5 text-sky-400/90 shrink-0" />
-                        <span className="text-zinc-500 font-medium">Created:</span>
-                        <span className="text-zinc-400 font-mono text-[12px]">{formatDate(target.created_at)}</span>
-                      </div>
-                      
-                      <div className="flex items-center gap-2">
-                        <Database className="w-3.5 h-3.5 text-sky-400/90 shrink-0 drop-shadow-[0_0_4px_rgba(56,189,248,0.15)]" />
-                        <span className="text-zinc-500 font-medium">Vector Sets:</span>
-                        <span className="text-zinc-400 font-mono text-[12px]">
-                          {target.embeddingsCount} <span className="text-[10px]  font-mono font-bold uppercase tracking-wider ml-0.5">templates</span>
-                        </span>
+      <div className="space-y-12">
+        {/* ReID Targets Grid */}
+        <div className="space-y-4">
+          <h2 className="text-xl font-bold text-zinc-100 flex items-center gap-2 px-2">
+            <Radar className="w-5 h-5 text-cyan-400" />
+            ReID Targets
+          </h2>
+          {filteredTargets.length === 0 ? (
+            <div className="bg-[color:var(--surface)] border border-[color:var(--border)] rounded-2xl py-20 text-center select-none flex flex-col items-center justify-center">
+              <Database className="w-10 h-10 text-[color:var(--fg-muted)] mb-3" />
+              <span className="text-sm font-semibold text-[color:var(--fg)]">No ReID Profiles Registered</span>
+              <span className="text-sm text-[color:var(--fg-muted)] mt-1">Try relaxing filters or run target acquisition.</span>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {filteredTargets.map((target) => {
+                const isActiveSearch = activeSearchIds.includes(target.id);
+                return (
+                  <div 
+                    key={target.id}
+                    onClick={() => handleOpenDetails(target)}
+                    className="group/card bg-[#0b1220]/60 border border-[#141c2c] hover:border-[#1e2d42] rounded-2xl transition-all duration-300 hover:shadow-xl hover:shadow-cyan-500/[0.01] cursor-pointer flex flex-col"
+                  >
+                    <div className="p-4 pb-0">
+                      <div className="relative w-full bg-[#070b14] rounded-xl overflow-hidden border border-[#162235]/60 group-hover/card:border-[#22344f] transition-all duration-300">
+                        <AvatarCrop 
+                          seed={parseInt(target.id, 10) || 50} 
+                          alias={target.alias} 
+                          status={isActiveSearch ? 'tracked' : 'idle'}
+                          previewImagePath={target.previewImagePath}
+                          className="w-full rounded-xl opacity-85 group-hover/card:opacity-100 group-hover/card:scale-[1.02] transition-all duration-500 ease-out"
+                        />
                       </div>
                     </div>
+                    <div className="p-5 flex-1 flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center justify-between gap-2 border-b border-[#141c2c]/80 pb-2">
+                          <h3 className="font-display font-bold text-sm text-zinc-200 truncate group-hover/card:text-white transition-colors tracking-tight">
+                            {target.alias}
+                          </h3>
+                          <span className="text-[9px] font-mono font-bold text-sky-400/80 bg-sky-950/30 border border-sky-900/30 px-1.5 py-0.5 rounded tracking-wide shrink-0">
+                            ID: {target.id}
+                          </span>
+                        </div>
+                        <div className="space-y-2 mt-3 text-[11px] text-zinc-400 font-medium">
+                          <div className="flex items-center gap-2">
+                            <Calendar className="w-3.5 h-3.5 text-sky-400/90 shrink-0" />
+                            <span className="text-zinc-500 font-medium">Created:</span>
+                            <span className="text-zinc-400 font-mono text-[12px]">{formatDate(target.created_at)}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Database className="w-3.5 h-3.5 text-sky-400/90 shrink-0 drop-shadow-[0_0_4px_rgba(56,189,248,0.15)]" />
+                            <span className="text-zinc-500 font-medium">Vector Sets:</span>
+                            <span className="text-zinc-400 font-mono text-[12px]">
+                              {target.embeddingsCount} <span className="text-[10px]  font-mono font-bold uppercase tracking-wider ml-0.5">templates</span>
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-5 pt-3 border-t border-[#141c2c]/80 flex items-center justify-between select-none">
+                        <button 
+                          onClick={(e) => { 
+                            e.stopPropagation(); 
+                            if (isActiveSearch) stopSearch(target.id); 
+                            else router.push(`/search?mode=person&targetId=${target.id}`); 
+                          }} 
+                          className={cn(
+                            "group/btn inline-flex items-center justify-center h-8 px-4 border text-[11px] font-semibold tracking-wide rounded-full transition-all duration-200 cursor-pointer gap-1.5",
+                            isActiveSearch 
+                              ? "border-emerald-900/60 bg-emerald-950/30 text-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.04)]" 
+                              : "border-[#162235] bg-[#070b14] text-zinc-400 hover:text-emerald-400 hover:bg-emerald-950/20 hover:border-emerald-900/50"
+                          )}
+                        >
+                          <Radar className={cn(
+                            "w-3.5 h-3.5 shrink-0 transition-colors duration-200", 
+                            isActiveSearch ? "text-emerald-400 animate-pulse" : "text-zinc-500 group-hover/btn:text-emerald-400"
+                          )} />
+                          <span className={cn(
+                            "transition-colors duration-200",
+                            isActiveSearch ? "text-emerald-400" : "group-hover/btn:text-emerald-400"
+                          )}>
+                            {isActiveSearch ? "Active Search" : "Live Search"}
+                          </span>
+                        </button>
+                        <button 
+                          onClick={(e) => { 
+                            e.stopPropagation(); 
+                            deleteTarget(target.id); 
+                          }} 
+                          title="Purge template" 
+                          className="group/delete inline-flex items-center justify-center w-8 h-8 border border-[#162235] bg-[#070b14] hover:bg-rose-950/20 hover:border-rose-900/50 text-zinc-500 hover:text-rose-400 rounded-full transition-all duration-200 cursor-pointer shrink-0"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 transition-colors duration-200" />
+                        </button>
+                      </div>
+                    </div>
                   </div>
-
-                  {/* Quick actions panel */}
-                  <div className="mt-5 pt-3 border-t border-[#141c2c]/80 flex items-center justify-between select-none">
-                    
-                    {/* 1. Dynamic Search Toggle Capsule Button */}
-                    <button 
-                      onClick={(e) => { 
-                        e.stopPropagation(); 
-                        if (isActiveSearch) stopSearch(target.id); 
-                        else startSearch(target.id); 
-                      }} 
-                      className={cn(
-                        "group/btn inline-flex items-center justify-center h-8 px-4 border text-[11px] font-semibold tracking-wide rounded-full transition-all duration-200 cursor-pointer gap-1.5",
-                        isActiveSearch 
-                          ? "border-emerald-900/60 bg-emerald-950/30 text-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.04)]" 
-                          : "border-[#162235] bg-[#070b14] text-zinc-400 hover:text-emerald-400 hover:bg-emerald-950/20 hover:border-emerald-900/50"
-                      )}
-                    >
-                      <Radar className={cn(
-                        "w-3.5 h-3.5 shrink-0 transition-colors duration-200", 
-                        isActiveSearch ? "text-emerald-400 animate-pulse" : "text-zinc-500 group-hover/btn:text-emerald-400"
-                      )} />
-                      
-                      <span className={cn(
-                        "transition-colors duration-200",
-                        isActiveSearch ? "text-emerald-400" : "group-hover/btn:text-emerald-400"
-                      )}>
-                        {isActiveSearch ? "Active Search" : "Live Search"}
-                      </span>
-                    </button>
-
-                    {/* 2. Purge Target Template Controller Icon */}
-                    <button 
-                      onClick={(e) => { 
-                        e.stopPropagation(); 
-                        deleteTarget(target.id); 
-                      }} 
-                      title="Purge template" 
-                      className="group/delete inline-flex items-center justify-center w-8 h-8 border border-[#162235] bg-[#070b14] hover:bg-rose-950/20 hover:border-rose-900/50 text-zinc-500 hover:text-rose-400 rounded-full transition-all duration-200 cursor-pointer shrink-0"
-                    >
-                      <Trash2 className="w-3.5 h-3.5 transition-colors duration-200" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-
+                );
+              })}
+            </div>
+          )}
         </div>
-      )}
+
+        {/* Face Registry Grid */}
+        <div className="space-y-4">
+          <h2 className="text-xl font-bold text-zinc-100 flex items-center gap-2 px-2">
+            <ScanFace className="w-5 h-5 text-indigo-400" />
+            Face Registry Targets
+          </h2>
+          {filteredFaceProfiles.length === 0 ? (
+            <div className="bg-[color:var(--surface)] border border-[color:var(--border)] rounded-2xl py-20 text-center select-none flex flex-col items-center justify-center">
+              <Database className="w-10 h-10 text-[color:var(--fg-muted)] mb-3" />
+              <span className="text-sm font-semibold text-[color:var(--fg)]">No Face Profiles Registered</span>
+              <span className="text-sm text-[color:var(--fg-muted)] mt-1">Enroll a face to use biometric identity search.</span>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {filteredFaceProfiles.map((face) => {
+                // Determine if this face ID is actively being searched. (Using same activeSearchIds logic if applicable)
+                const isActiveSearch = activeSearchIds.includes(face.id);
+                return (
+                  <div 
+                    key={face.id}
+                    className="group/card bg-[#0b1220]/60 border border-[#141c2c] hover:border-[#1e2d42] rounded-2xl transition-all duration-300 hover:shadow-xl hover:shadow-indigo-500/[0.01] cursor-pointer flex flex-col"
+                  >
+                    <div className="p-4 pb-0">
+                      <div className="relative w-full bg-[#070b14] rounded-xl overflow-hidden border border-[#162235]/60 group-hover/card:border-[#22344f] transition-all duration-300">
+                        <AvatarCrop 
+                          seed={parseInt(face.id, 10) || 100} 
+                          alias={face.alias} 
+                          status={isActiveSearch ? 'tracked' : 'idle'}
+                          className="w-full rounded-xl opacity-85 group-hover/card:opacity-100 group-hover/card:scale-[1.02] transition-all duration-500 ease-out"
+                        />
+                      </div>
+                    </div>
+                    <div className="p-5 flex-1 flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center justify-between gap-2 border-b border-[#141c2c]/80 pb-2">
+                          <h3 className="font-display font-bold text-sm text-zinc-200 truncate group-hover/card:text-white transition-colors tracking-tight">
+                            {face.alias}
+                          </h3>
+                          <span className="text-[9px] font-mono font-bold text-indigo-400/80 bg-indigo-950/30 border border-indigo-900/30 px-1.5 py-0.5 rounded tracking-wide shrink-0">
+                            ID: {face.id}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="mt-5 pt-3 border-t border-[#141c2c]/80 flex items-center justify-between select-none">
+                        <button 
+                          onClick={(e) => { 
+                            e.stopPropagation(); 
+                            if (isActiveSearch) stopSearch(face.id); 
+                            else router.push(`/search?mode=face&targetId=${face.id}`); 
+                          }} 
+                          className={cn(
+                            "group/btn inline-flex items-center justify-center h-8 px-4 border text-[11px] font-semibold tracking-wide rounded-full transition-all duration-200 cursor-pointer gap-1.5",
+                            isActiveSearch 
+                              ? "border-indigo-900/60 bg-indigo-950/30 text-indigo-400 shadow-[0_0_12px_rgba(99,102,241,0.04)]" 
+                              : "border-[#162235] bg-[#070b14] text-zinc-400 hover:text-indigo-400 hover:bg-indigo-950/20 hover:border-indigo-900/50"
+                          )}
+                        >
+                          <ScanFace className={cn(
+                            "w-3.5 h-3.5 shrink-0 transition-colors duration-200", 
+                            isActiveSearch ? "text-indigo-400 animate-pulse" : "text-zinc-500 group-hover/btn:text-indigo-400"
+                          )} />
+                          <span className={cn(
+                            "transition-colors duration-200",
+                            isActiveSearch ? "text-indigo-400" : "group-hover/btn:text-indigo-400"
+                          )}>
+                            {isActiveSearch ? "Active Search" : "Live Search"}
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Target Modal details dialog */}
       {selectedTarget && (
-        // Changed backdrop overlay from bg-zinc-950/45 to a darker mask with heavy blur
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#090d16]/80 backdrop-blur-sm select-none">
-          {/* Main Container: Swapped bg-white and border-zinc-200 to our dark system palette */}
           <div className="bg-[#0f172a] border border-[#1e293b] rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-150">
-            
-            {/* Modal Header: Updated text colors and border lines */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-[#141b2b]">
               <div className="flex items-center gap-2.5">
                 <Tag className="w-4 h-4 text-zinc-500" />
@@ -422,13 +491,8 @@ export default function TargetGalleryPage() {
               </Button>
             </div>
 
-            {/* Modal Content */}
             <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin scrollbar-thumb-zinc-800">
-              
-              {/* Biometrics Card & Main Details */}
               <div className="flex flex-col sm:flex-row gap-6 items-start">
-                
-                {/* Profile Image Canvas Frame */}
                 <div className="relative group shrink-0">
                   <AvatarCrop 
                     seed={parseInt(selectedTarget.id, 10) || 50} 
@@ -441,7 +505,6 @@ export default function TargetGalleryPage() {
                 
                 <div className="flex-1 space-y-4 w-full">
                   {isEditing ? (
-                    // Input Editing Area Section
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Target Identity Alias</label>
                       <input 
@@ -452,7 +515,6 @@ export default function TargetGalleryPage() {
                       />
                     </div>
                   ) : (
-                    // Identity Static Labels Context Display Block Frame
                     <div className="space-y-1">
                       <h2 className="text-base font-bold text-zinc-100 tracking-tight leading-tight">
                         {selectedTarget.alias}
@@ -464,22 +526,16 @@ export default function TargetGalleryPage() {
                     </div>
                   )}
 
-                  {/* Grid Dashboard Info Data Cards */}
                   <div className="grid grid-cols-2 gap-3 text-xs">
-                    
-                    {/* Data Box 1: Vector Storage Tracker Block */}
                     <div className="bg-[#090d16]/60 p-3 rounded-xl border border-[#141b2b] flex flex-col justify-between h-14">
                       <span className="text-[9px] font-bold text-zinc-500 block uppercase tracking-wider">Vector Set</span>
                       <span className="font-bold text-cyan-400 text-xs mt-0.5 block tracking-wide">
                         {selectedTarget.embeddingsCount} <span className="text-[10px] font-medium text-zinc-500 font-sans">profiles</span>
                       </span>
                     </div>
-                    
-                    {/* Data Box 2: Network Tracking Machine State Status Panel */}
                     <div className="bg-[#090d16]/60 p-3 rounded-xl border border-[#141b2b] flex flex-col justify-between h-14">
                       <span className="text-[9px] font-bold text-zinc-500 block uppercase tracking-wider">Pipeline Node</span>
                       <div className="flex items-center gap-1.5 mt-0.5">
-                        {/* Semantic conditional indicators */}
                         <span className={cn(
                           "w-1.5 h-1.5 rounded-full shrink-0",
                           selectedTarget.status === 'tracked' ? "bg-emerald-500 animate-pulse" : "bg-zinc-500"
@@ -492,12 +548,10 @@ export default function TargetGalleryPage() {
                         </span>
                       </div>
                     </div>
-
                   </div>
                 </div>
               </div>
 
-              {/* Metadata Fields Note */}
               <div className="border-t border-[#141b2b] pt-5 space-y-3.5">
                 <div className="flex items-center justify-between">
                   <h3 className="font-bold text-xs text-zinc-300 tracking-wider uppercase flex items-center gap-2">
@@ -514,15 +568,11 @@ export default function TargetGalleryPage() {
                   )}
                 </div>
 
-                {/* UI/UX Upgraded System Warning Callout Box */}
                 <div className="bg-[#090d16]/60 border border-[#1e293b]/70 rounded-xl p-4 text-xs text-zinc-400 leading-relaxed space-y-2.5">
                   <p>
                     This neural profile registers active biometric signature history mapping and re-identification vectors for subject <strong className="text-zinc-200 font-semibold">{selectedTarget.alias}</strong>.
                   </p>
-                  
-                  {/* Inner Divider line to segregate real-time limits cleanly */}
                   <div className="h-[1px] w-full bg-[#1e293b]/50 my-1" />
-
                   <p className="text-[11px] text-zinc-500 leading-normal">
                     <span className="text-[10px] font-bold text-amber-500/80 tracking-wider uppercase font-mono mr-1.5">[System Limit]:</span>
                     Soft biometric semantic descriptors (e.g., specific clothing features, demographic categorizations, or age profiles) are offline under the active neural engine version.
@@ -531,18 +581,15 @@ export default function TargetGalleryPage() {
               </div>
             </div>
 
-            {/* Modal Footer */}
             <div className="px-6 py-4 bg-[#090d16] border-t border-[#141b2b] flex items-center justify-between select-none">
               <div className="flex gap-2">
-                
-                {/* 1. Radar Search Control Capsule Button */}
                 <Button
                   onClick={async () => {
                     const isSearching = activeSearchIds.includes(selectedTarget.id);
                     if (isSearching) {
                       await stopSearch(selectedTarget.id);
                     } else {
-                      await startSearch(selectedTarget.id);
+                      await startSearch(selectedTarget.id, 'person');
                     }
                   }}
                   className={cn(
@@ -558,10 +605,9 @@ export default function TargetGalleryPage() {
                   </span>
                 </Button>
                 
-                {/* 2. Feed Navigation Action Button */}
                 <Button
                   onClick={() => {
-                    router.push(`/search?target=${selectedTarget.id}`);
+                    router.push(`/search?mode=person&targetId=${selectedTarget.id}`);
                     setSelectedTarget(null);
                   }}
                   className="flex items-center gap-1.5 h-8 px-4 py-0 border border-[#1e293b] bg-[#0f172a] hover:bg-[#1e293b] text-zinc-300 hover:text-zinc-100 rounded-full text-xs font-semibold cursor-pointer shrink-0"
@@ -570,19 +616,15 @@ export default function TargetGalleryPage() {
                 </Button>
               </div>
 
-              {/* Form State Actions Panel Section */}
               <div className="flex items-center gap-2">
                 {isEditing ? (
                   <>
-                    {/* Cancel Variant Link Button */}
                     <Button 
                       onClick={() => setIsEditing(false)}
                       className="h-8 px-3.5 py-0 text-zinc-500 hover:text-zinc-300 text-xs font-semibold border-none cursor-pointer bg-transparent shadow-none hover:shadow-none hover:scale-100"
                     >
                       Cancel
                     </Button>
-                    
-                    {/* Save Modification Form Parameter Trigger */}
                     <Button 
                       onClick={handleSaveDetails}
                       className="h-8 px-4 py-0 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/25 text-cyan-400 rounded-full text-xs font-semibold cursor-pointer shrink-0"
@@ -591,7 +633,6 @@ export default function TargetGalleryPage() {
                     </Button>
                   </>
                 ) : (
-                  /* Default Done Modal Controller Closure Button */
                   <Button
                     onClick={() => setSelectedTarget(null)}
                     className="h-8 px-4 py-0 bg-[#0f172a] hover:bg-[#1e293b] border border-[#1e293b] text-zinc-300 hover:text-zinc-100 rounded-full text-xs font-semibold cursor-pointer shrink-0"

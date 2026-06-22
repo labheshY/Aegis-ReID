@@ -89,6 +89,13 @@ class ApiClient {
     return res.json();
   }
 
+  // GET /search/matches
+  async getSearchMatches(): Promise<{ success: boolean; data: any[] }> {
+    const res = await fetch(`${BASE_URL}/search/matches`);
+    if (!res.ok) throw new Error('Failed to fetch search matches');
+    return res.json();
+  }
+
   // GET /runtime/mode
   async getRuntimeMode(): Promise<{ success: boolean; mode: RuntimeMode }> {
     const res = await fetch(`${BASE_URL}/runtime/mode`);

@@ -5,69 +5,74 @@ from app.core.config import OUTPUTS_DIR
 from app.core.config import PREVIEWS_DIR
 from app.core.config import YOLO_MODEL_PATH
 from app.core.logger import logger
-from app.reid.reid_model import generate_embedding
 from app.reid.target_acquisition import TargetAcquisitionManager
-from app.utils.similarity import cosine_similarity
+from app.utils.tracker_yaml import save_bytetrack_yaml
 from ultralytics import YOLO
-import cv2
+import onnxruntime as ort
 import threading
 import time
-import numpy as np
-from app.services.camera_manager import camera_manager
+from typing import Optional, Dict
 
+# Patch onnxruntime to force DML Execution Provider for AMD GPUs
+_original_init = ort.InferenceSession.__init__
+def _patched_init(self, path_or_bytes, sess_options=None, providers=None, provider_options=None, **kwargs):
+    providers = ['DmlExecutionProvider', 'CPUExecutionProvider']
+    _original_init(self, path_or_bytes, sess_options, providers, provider_options, **kwargs)
+ort.InferenceSession.__init__ = _patched_init
+from app.services.camera_manager import camera_manager
+from app.services.tracker_worker import TrackerWorker
 
 class TrackerService:
     def __init__(self):
         self.settings = DEFAULT_TRACKER_SETTINGS.copy()
+        from app.services.settings_service import settings_service
+        self.settings.update(settings_service.get())
         self.acquisition_manager = TargetAcquisitionManager(
             max_embeddings=self.settings["max_embeddings"],
             payload_dir=EMBEDDINGS_DIR
         )
         self.model = YOLO(str(YOLO_MODEL_PATH), task="detect")
-        self.latest_frame = None
-        self.is_running = False
-        self.stream_started_at = None
-
-        self.frame_count = 0
-        self.track_memory = {}
-        self.width = 640
-        self.height = 360
+        self.model_lock = threading.RLock()
+        self.lock = threading.RLock()
+        
+        self.workers: Dict[str, TrackerWorker] = {}
+        
         self.mode = "idle"
-
         self.camera_id = None
 
-        self.active_tracks = {}
-        self.current_search_target = None
-        self.loaded_target_id = None
         self.acquisition_target_id = None
         self.acquisition_last_seen = None
         self.acquisition_timeout = 5  # seconds  
 
-        self.lock = threading.RLock()
+        self.tracking_mode = "person"
+        self.search_camera_ids = set()
+        self.current_search_target = None
+        self.loaded_target_id = None
 
-    def start(self, video_path: str, camera_id: str | None = None):
-        if self.is_running:
-            logger.warning("TrackerService is already running")
-            return
-        self.is_running = True
-        self.stream_started_at = time.time()
-        logger.info(f"Stream startup for source {video_path}")
-        if camera_id is not None:
-            self.camera_id = camera_id
+    def start_worker(self, camera_id: str):
         with self.lock:
-            self.video_path = video_path
-        threading.Thread(
-            target=self.process_video,
-            args=(video_path,),
-            daemon=True
-        ).start()
+            if camera_id not in self.workers:
+                worker = TrackerWorker(camera_id, self)
+                self.workers[camera_id] = worker
+                worker.start()
 
-    def stop(self):
-        logger.info("TrackerService stopping")
-        self.is_running = False
+    def stop_worker(self, camera_id: str):
+        with self.lock:
+            if camera_id in self.workers:
+                worker = self.workers.pop(camera_id)
+                worker.stop()
+
+    def stop_all_workers(self):
+        with self.lock:
+            for camera_id in list(self.workers.keys()):
+                self.stop_worker(camera_id)
+
+    def get_worker(self, camera_id: str):
+        with self.lock:
+            return self.workers.get(camera_id)
 
     def set_mode(self, mode: str):
-        if mode not in {"idle", "acquisition", "search"}:
+        if mode not in {"idle", "preview", "acquisition", "search"}:
             raise ValueError(f"Invalid runtime mode: {mode}")
         with self.lock:
             if mode != self.mode:
@@ -79,22 +84,30 @@ class TrackerService:
         with self.lock:
             return self.mode
 
-    def get_latest_frame(self):
+    def get_latest_frame(self, camera_id: str | None = None):
         with self.lock:
-            if self.latest_frame is None:
-                return None
-            return self.latest_frame.copy()
+            if camera_id:
+                worker = self.workers.get(camera_id)
+                return worker.get_latest_frame() if worker else None
+            # Return any worker's frame if camera_id is not specified
+            for worker in self.workers.values():
+                frame = worker.get_latest_frame()
+                if frame is not None:
+                    return frame
+            return None
 
-    def get_active_tracks(self):
+    def get_active_tracks(self, camera_id: str | None = None):
         with self.lock:
-            return {
-                str(track_id): data.copy()
-                for track_id, data in self.active_tracks.items()
-            }
+            if camera_id:
+                worker = self.workers.get(camera_id)
+                return worker.get_active_tracks() if worker else {}
+            merged = {}
+            for worker in self.workers.values():
+                merged.update(worker.get_active_tracks())
+            return merged
 
     def get_settings(self):
         with self.lock:
-            # merge persisted settings
             persisted = settings_service.get()
             merged = self.settings.copy()
             merged.update(persisted)
@@ -106,215 +119,24 @@ class TrackerService:
             for key, value in updates.items():
                 if key in allowed_keys and value is not None:
                     self.settings[key] = value
-            # persist
             settings_service.update(self.settings)
+            save_bytetrack_yaml(self.settings)
             self.acquisition_manager.max_embeddings = int(self.settings["max_embeddings"])
             return self.settings.copy()
 
-    def process_video(self, video_path: str):
-        OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
-        cap = None
-        out = None
-
-        while self.is_running:
-            # Determine current input source: live camera frames or file capture
+    def set_search_target(self, target_id: str, tracking_mode: Optional[str] = None, camera_ids: Optional[list[str]] = None):
+        if tracking_mode and tracking_mode in {"person", "face", "hybrid"}:
             with self.lock:
-                current_camera = getattr(self, 'camera_id', None)
-                current_video = getattr(self, 'video_path', video_path)
+                self.tracking_mode = tracking_mode
+            logger.info(f"Tracking mode set to '{tracking_mode}' for search")
 
-            frame = None
-
-            if current_camera:
-                # fetch latest JPEG buffer from camera manager
-                buffer = camera_manager.get_frame(current_camera)
-                if buffer is None:
-                    time.sleep(0.05)
-                    continue
-                arr = np.frombuffer(buffer, dtype='uint8')
-                frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-                if frame is None:
-                    time.sleep(0.05)
-                    continue
-
-                # ensure out writer exists for diagnostics
-                if out is None:
-                    fps = 20
-                    out = cv2.VideoWriter(
-                        str(OUTPUTS_DIR / f"output_{current_camera}.mp4"),
-                        cv2.VideoWriter_fourcc(*"mp4v"),
-                        fps,
-                        (self.width, self.height)
-                    )
-
-            else:
-                # use file capture
-                if cap is None:
-                    cap = cv2.VideoCapture(str(current_video))
-                    if not cap.isOpened():
-                        logger.warning(f"Unable to open video source {current_video}")
-                        # wait before retrying
-                        time.sleep(1)
-                        cap = None
-                        continue
-                ret, frame = cap.read()
-                if not ret:
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                    continue
-
-                if out is None:
-                    fps = int(cap.get(cv2.CAP_PROP_FPS)) or 30
-                    out = cv2.VideoWriter(
-                        str(OUTPUTS_DIR / "output.mp4"),
-                        cv2.VideoWriter_fourcc(*"mp4v"),
-                        fps,
-                        (self.width, self.height)
-                    )
-
-            self.frame_count += 1
-            frame = cv2.resize(frame, (self.width, self.height))
-            results = self.model.track(
-                frame,
-                persist=True,
-                tracker="bytetrack.yaml",
-                conf=0.5,
-                verbose=False
-            )
-
-            frame_tracks = {}
-            with self.lock:
-                mode = self.mode
-                settings = self.settings.copy()
-                acquisition_target_id = self.acquisition_target_id
-                search_target_id = self.current_search_target
-
-            for result in results:
-                boxes = result.boxes
-                for box in boxes:
-                    target_label = None
-                    similarity_score = None
-                    if box.id is None:
-                        continue
-
-                    cls = int(box.cls[0])
-                    if cls != 0:
-                        continue
-
-                    x1, y1, x2, y2 = map(int, box.xyxy[0])
-                    conf = float(box.conf[0])
-                    track_id = int(box.id[0])
-                    label = f"ID {track_id} {conf:.2f}"
-                    box_width = x2 - x1
-                    box_height = y2 - y1
-
-                    frame_tracks[track_id] = {
-                        "bbox": [x1, y1, x2, y2],
-                        "confidence": conf,
-                        "camera_id": self.camera_id
-                    }
-                    if mode == "acquisition" and acquisition_target_id == track_id:
-                        self.acquisition_last_seen = time.time()    
-                        if (
-                            conf > float(settings["min_box_confidence"])
-                            and box_width > int(settings["min_box_width"])
-                            and box_height > int(settings["min_box_height"])
-                        ):
-                            self._collect_acquisition_embedding(
-                                frame,
-                                x1,
-                                y1,
-                                x2,
-                                y2,
-                                conf,
-                                track_id,
-                                settings
-                            )
-
-                    if mode == "search" and search_target_id:
-                        if ( conf > 0.4 and box_width > 40 and box_height > 80):
-                            target_label, similarity_score = self._run_reid_search(
-                                frame,
-                                x1,
-                                y1,
-                                x2,
-                                y2,
-                                track_id,
-                                settings
-                            )
-
-                    # if track_id in self.track_memory and self.track_memory[track_id] > int(settings["target_confirmation"]):
-                    #     display_label = target_label if target_label is not None else "Target"
-                    #     cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
-                    #     cv2.putText(frame, display_label, (x1, y1 - 10), cv2.FONT_HERSHEY_COMPLEX, 0.5, (0, 0, 255), 2)
-                    # else:
-                    #     cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    #     cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_COMPLEX, 0.5, (0, 255, 0), 2)
-
-            with self.lock:
-                self.active_tracks = frame_tracks
-                self.latest_frame = frame.copy()
-            self.check_acquisition_timeout()
-            out.write(frame)
-
-        self.is_running = False
-        cap.release()
-        out.release()
-        cv2.destroyAllWindows()
-
-    def _collect_acquisition_embedding(self, frame, x1, y1, x2, y2, conf, track_id, settings):
-        self.acquisition_last_seen = time.time()
-        if self.acquisition_manager.acquisition_complete:
-            with self.lock:
-                self.acquisition_target_id = None
-                self.mode = "idle"
-            logger.info(f"Target creation complete for track {track_id}")
-            return
-
-        if self.frame_count % int(settings["acquisition_frame_interval"]) != 0:
-            return
-
-        crop = frame[y1:y2, x1:x2]
-
-        if conf > self.acquisition_manager.best_preview_confidence:
-            PREVIEWS_DIR.mkdir(parents=True, exist_ok=True)
-            preview_path = PREVIEWS_DIR / f"preview_{track_id}.jpg"
-            self.acquisition_manager.payload["preview_image_path"] = str(preview_path)
-            cv2.imwrite(str(preview_path), crop)
-            self.acquisition_manager.best_preview_confidence = conf
-
-        self.acquisition_manager.add_embedding(generate_embedding(crop))
-
-    def _run_reid_search(self, frame, x1, y1, x2, y2, track_id, settings):
-        if self.frame_count % int(settings["reid_frame_interval"]) != 0:
-            return None, None
-
-        crop = frame[y1:y2, x1:x2]
-        detected_embedding = generate_embedding(crop)
-        target_embeddings = self.acquisition_manager.get_embeddings()
-        similarities = [
-            cosine_similarity(detected_embedding, target_embedding)
-            for target_embedding in target_embeddings
-        ]
-        similarity_score = max(similarities) if similarities else 0
-
-        if similarity_score > float(settings["similarity_threshold"]):
-            self.track_memory[track_id] = self.track_memory.get(track_id, 0) + 1
-            logger.info(
-                f"Track ID {track_id} hit similarity check with score "
-                f"{similarity_score:.2f} ({self.track_memory[track_id]} hits)"
-            )
-        elif settings["use_soft_decay"]:
-            self.track_memory[track_id] = max(
-                0,
-                self.track_memory.get(track_id, 0) - float(settings["soft_decay_rate"])
-            )
-
-        return f"Target {similarity_score:.2f}", similarity_score
-
-    def set_search_target(self, target_id: str):
         with self.lock:
+            if camera_ids:
+                self.search_camera_ids = set(camera_ids)
             if target_id == self.loaded_target_id:
                 self.mode = "search"
                 self.current_search_target = target_id
+                self._start_search_workers()
                 return
 
         logger.info(f"Search start for target ID {target_id}")
@@ -322,29 +144,41 @@ class TrackerService:
         with self.lock:
             self.loaded_target_id = target_id
             self.current_search_target = target_id
-            self.track_memory = {}
+            for worker in self.workers.values():
+                with worker.lock:
+                    worker.track_memory = {}
             self.mode = "search"
+            self._start_search_workers()
         logger.info(f"Successfully loaded payload for target {target_id}")
+
+    def _start_search_workers(self):
+        # Start workers for all selected search cameras
+        for cid in self.search_camera_ids:
+            camera_manager.start_capture(cid)
+            self.start_worker(cid)
 
     def clear_search_target(self):
         with self.lock:
             target_id = self.current_search_target
             self.current_search_target = None
             self.loaded_target_id = None
-            self.track_memory = {}
+            for worker in self.workers.values():
+                with worker.lock:
+                    worker.search_matches.clear()
             if self.mode == "search":
                 self.mode = "idle"
+                self.stop_all_workers()
         logger.info(f"Search stop for target ID {target_id}")
 
     def set_acquisition_target(self, track_id: int, alias: str | None = None):
         with self.lock:
             logger.info(f"Requested track_id: {track_id}")
-            logger.info(f"Active tracks: {list(self.active_tracks.keys())}")
+            active_tracks = self.get_active_tracks()
+            logger.info(f"Active tracks: {list(active_tracks.keys())}")
 
-            if track_id not in self.active_tracks:
+            if str(track_id) not in active_tracks and track_id not in active_tracks:
                 logger.warning(
-                f"Track {track_id} not found. Available: "
-                f"{list(self.active_tracks.keys())}"
+                    f"Track {track_id} not found. Available: {list(active_tracks.keys())}"
                 )
                 return None
             self.acquisition_target_id = track_id
@@ -364,23 +198,29 @@ class TrackerService:
     def switch_camera(self, camera_id: str | None):
         """Switch the tracker input to the given camera_id (or None to use file)."""
         with self.lock:
-            if camera_id == getattr(self, 'camera_id', None):
+            if camera_id == self.camera_id:
                 return
+            
+            old_camera_id = self.camera_id
             self.camera_id = camera_id
             logger.info(f"TrackerService switching to camera {camera_id}")
+            
             if camera_id:
-                # ensure camera capture is started
                 camera_manager.start_capture(camera_id)
-            # reset some state when switching
-            self.track_memory = {}
-            self.active_tracks = {}
+                self.start_worker(camera_id)
+                self.mode = self.mode if self.mode in ("acquisition", "preview", "search") else "preview"
+                
+                # Stop the worker for the old camera if we're not in search mode
+                if self.mode != "search" and old_camera_id:
+                    self.stop_worker(old_camera_id)
 
     def find_track_at_point(self, x: int, y: int):
         with self.lock:
-            for track_id, data in self.active_tracks.items():
+            active_tracks = self.get_active_tracks()
+            for track_id, data in active_tracks.items():
                 x1, y1, x2, y2 = data["bbox"]
                 if x1 <= x <= x2 and y1 <= y <= y2:
-                    return track_id
+                    return int(track_id)
         return None
 
     def stop_acquisition(self):
@@ -393,7 +233,7 @@ class TrackerService:
         with self.lock:
             self.acquisition_target_id = None
             if self.mode == "acquisition":
-                self.mode = "idle"
+                self.mode = "preview"
         logger.info(f"Acquisition stop for track ID {target_id}")
         return self.get_acquisition_status()
 
@@ -411,35 +251,44 @@ class TrackerService:
 
     def get_search_status(self):
         with self.lock:
+            confirmed_tracks = []
+            for worker in self.workers.values():
+                for track_id, hits in worker.track_memory.items():
+                    if hits > int(self.settings["target_confirmation"]):
+                        confirmed_tracks.append(track_id)
+                        
             return {
                 "active": self.mode == "search" and self.current_search_target is not None,
                 "target_id": self.current_search_target,
-                "confirmed_tracks": [
-                    track_id
-                    for track_id, hits in self.track_memory.items()
-                    if hits > int(self.settings["target_confirmation"])
-                ]
+                "tracking_mode": self.tracking_mode,
+                "confirmed_tracks": list(set(confirmed_tracks))
             }
+
+    def get_search_matches(self):
+        matches = []
+        with self.lock:
+            for worker in self.workers.values():
+                with worker.lock:
+                    matches.extend(worker.search_matches.values())
+        return matches
 
     def get_status(self):
         with self.lock:
             return {
-                "running": self.is_running,
+                "running": len(self.workers) > 0,
                 "mode": self.mode,
-                "frame_count": self.frame_count,
-                "active_tracks_count": len(self.active_tracks),
+                "active_tracks_count": len(self.get_active_tracks()),
                 "camera_id": self.camera_id,
                 "search_target": self.current_search_target,
-                "acquisition_target": self.acquisition_target_id
+                "acquisition_target": self.acquisition_target_id,
+                "workers": list(self.workers.keys())
             }
 
     def get_stream_health(self):
         with self.lock:
             return {
-                "running": self.is_running,
-                "has_frame": self.latest_frame is not None,
-                "started_at": self.stream_started_at,
-                "frame_count": self.frame_count
+                "running": len(self.workers) > 0,
+                "has_frame": self.get_latest_frame() is not None
             }
 
     def check_acquisition_timeout(self):
@@ -466,5 +315,14 @@ class TrackerService:
                 should_stop = True
         if should_stop:
             self.stop_acquisition()
+
+    def reset_settings(self):
+        with self.lock:
+            self.settings = DEFAULT_TRACKER_SETTINGS.copy()
+            settings_service.update(self.settings)
+            self.acquisition_manager.max_embeddings = int(
+                self.settings["max_embeddings"]
+            )
+            return self.settings.copy()
 
 tracker_service = TrackerService()

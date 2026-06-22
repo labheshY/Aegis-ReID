@@ -26,7 +26,7 @@ RUNTIME_STATE_FILE = BASE_DIR / "data" / "runtime" / "runtime_state.json"
 
 DEFAULT_VIDEO_PATH = Path(os.getenv("DEFAULT_VIDEO_PATH", VIDEOS_DIR / "test_short.mp4"))
 
-YOLO_MODEL_PATH = Path(os.getenv("YOLO_MODEL_PATH", MODELS_DIR / "yolo11n.onnx"))
+YOLO_MODEL_PATH = Path(os.getenv("YOLO_MODEL_PATH", MODELS_DIR / "yolo26n.onnx"))
 
 DEFAULT_TRACKER_SETTINGS = {
     "min_box_confidence": float(os.getenv("MIN_BOX_CONFIDENCE", 0.7)),
@@ -45,4 +45,9 @@ DEFAULT_TRACKER_SETTINGS = {
     "face_detector": os.getenv("FACE_DETECTOR", "haar"),
     # hybrid weight between reid and face (0..1 where 1.0 means only face)
     "hybrid_face_weight": float(os.getenv("HYBRID_FACE_WEIGHT", 0.5)),
+    "track_buffer": 60,
+    "match_thresh": 0.85,
+    "track_high_thresh": 0.45,
+    "track_low_thresh": 0.15,
+    "new_track_thresh": 0.50,
 }

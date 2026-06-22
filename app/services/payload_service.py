@@ -39,7 +39,7 @@ def load_all_payloads():
             continue
         file_path = os.path.join(PAYLOAD_DIR, filename)
         try:
-            data = torch.load(file_path)
+            data = torch.load(file_path, weights_only=False)
             targets.append(build_target_response(data))
         except Exception as e:
             logger.warning(f"Error loading payload {filename}: {e}", exc_info=True)
@@ -58,7 +58,7 @@ def delete_target_by_id(target_id: str):
     if not os.path.exists(file_path):
         return False
     try:
-        data = torch.load(file_path)
+        data = torch.load(file_path, weights_only=False)
         metadata = data["metadata"]
         preview_image_path = metadata.get("preview_image_path")
         if preview_image_path and os.path.exists(preview_image_path):
@@ -78,7 +78,7 @@ def update_target_by_id(target_id: str, update_data: dict):
         logger.warning(f"Payload file {file_name} not found for target {target_id}", exc_info=True)
         raise TargetNotFoundException(target_id)
     try:
-        data = torch.load(file_path)
+        data = torch.load(file_path, weights_only=False)
         metadata = data["metadata"]
         #Update field in metadata
         for key, value in update_data.items():
@@ -105,7 +105,7 @@ def load_target_payload(target_id: str):
         logger.warning("File to load payload does not exists.")
         raise TargetNotFoundException(target_id)
     try:
-        data = torch.load(file_path)
+        data = torch.load(file_path, weights_only=False)
         logger.info(f"Loaded payload for target {target_id}")
     except Exception as e:
         logger.warning(f"Error loading target {target_id} payload: {e}", exc_info=True)

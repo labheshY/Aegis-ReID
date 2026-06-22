@@ -17,16 +17,23 @@ from app.api.routes.face import router as face_router
 from app.services.tracker_service import tracker_service
 from app.core.config import DEFAULT_VIDEO_PATH
 from app.core.config import PREVIEWS_DIR
+from app.core.config import ACTIVE_SEARCH_FILE
 from app.exceptions.target_exceptions import TargetNotFoundException
+from app.core.logger import logger
 from contextlib import asynccontextmanager
 from pathlib import Path
 import os
 
 @asynccontextmanager
 async def lifespan(app):
-    tracker_service.start(str(DEFAULT_VIDEO_PATH))
+    # Clean up any stale active_search.json from a previous crashed session
+    if ACTIVE_SEARCH_FILE.exists():
+        try:
+            ACTIVE_SEARCH_FILE.unlink()
+            logger.info("Cleared stale active_search.json on startup")
+        except Exception:
+            logger.exception("Failed to clear stale active_search.json on startup")
     yield
-    tracker_service.stop()
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 PREVIEW_DIR = PREVIEWS_DIR

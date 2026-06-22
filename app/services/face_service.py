@@ -53,7 +53,7 @@ class FaceService:
         embs = []
         for p in profile_folder.glob('emb_*.pt'):
             try:
-                embs.append(torch.load(p))
+                embs.append(torch.load(p, weights_only=False))
             except Exception:
                 logger.exception(f"Failed to load embedding {p}")
         return embs

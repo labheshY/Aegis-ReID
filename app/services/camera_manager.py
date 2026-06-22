@@ -4,19 +4,21 @@ import json
 from pathlib import Path
 from typing import Dict, Optional
 import cv2
+import numpy as np
 from app.core.config import BASE_DIR
 from app.core.logger import logger
 from app.services.secret_store import secret_store
 
 
 CAMERAS_FILE = Path(BASE_DIR) / "data" / "runtime" / "cameras.json"
+FIRST_FRAME_TIMEOUT_SECONDS = 10
 
 
 class CameraManager:
     def __init__(self):
         self.cameras: Dict[str, dict] = {}
         self.captures: Dict[str, cv2.VideoCapture] = {}
-        self.frames: Dict[str, Optional[bytes]] = {}
+        self.frames: Dict[str, Optional[np.ndarray]] = {}
         self.threads: Dict[str, threading.Thread] = {}
         self.locks: Dict[str, threading.RLock] = {}
         self.running = False
@@ -99,6 +101,9 @@ class CameraManager:
         cid = camera.get("id")
         if not cid:
             raise ValueError("Camera must have an id")
+        if not camera.get("source"):
+            raise ValueError("Camera must have a source")
+        camera.setdefault("status", "offline")
         # If source contains credentials and secret_store is available, encrypt it before saving
         src = camera.get("source")
         if isinstance(src, str) and '@' in src and '://' in src and secret_store:
@@ -151,55 +156,156 @@ class CameraManager:
         self.frames[camera_id] = None
 
         def run():
-            # Prefer decrypted source when available
-            source = None
-            enc = cam.get("_encrypted_source")
-            if enc and secret_store:
-                try:
-                    dec = secret_store.decrypt(enc)
-                    if dec:
-                        source = dec
-                except Exception:
-                    logger.exception("Failed to decrypt camera source for capture")
-            if not source:
-                source = cam.get("source")
             backoff = 1
+
             while True:
+                cam = self.cameras.get(camera_id)
+
+                if cam is None:
+                    logger.info(
+                        f"Camera {camera_id} removed, stopping thread"
+                    )
+                    break
+
+                if not cam.get("enabled", True):
+                    logger.info(
+                        f"Camera {camera_id} disabled, stopping thread"
+                    )
+                    break
+
+                source = None
+
+                # Prefer decrypted source when available
+                enc = cam.get("_encrypted_source")
+                if enc and secret_store:
+                    try:
+                        dec = secret_store.decrypt(enc)
+                        if dec:
+                            source = dec
+                    except Exception:
+                        logger.exception(
+                            "Failed to decrypt camera source for capture"
+                        )
+
+                if not source:
+                    source = cam.get("source")
+
                 try:
-                    cap = cv2.VideoCapture(str(source))
+                    logger.info(
+                        f"Opening camera {camera_id}: {source}"
+                    )
+
+                    cam["status"] = "connecting"
+                    self._save()
+
+                    cap = cv2.VideoCapture(
+                        str(source),
+                        cv2.CAP_FFMPEG
+                    )
+
+                    cap.set(
+                        cv2.CAP_PROP_BUFFERSIZE,
+                        1
+                    )
+
+                    # Wait for first frame
+                    frame_received = False
+                    first_frame = None
+                    start_time = time.time()
+
+                    while time.time() - start_time < FIRST_FRAME_TIMEOUT_SECONDS:
+                        ret, frame = cap.read()
+
+                        if ret:
+                            frame_received = True
+                            first_frame = frame
+                            break
+
+                        time.sleep(0.25)
+
                     self.captures[camera_id] = cap
-                    if not cap.isOpened():
-                        logger.warning(f"Camera {camera_id} unable to open source {source}")
-                        # mark offline
-                        self.cameras[camera_id]["status"] = "offline"
+
+                    if not frame_received:
+                        logger.warning(
+                            f"Camera {camera_id} unable to receive frames"
+                        )
+
+                        cam["status"] = "offline"
                         self._save()
+
+                        try:
+                            cap.release()
+                        except Exception:
+                            pass
+
                         time.sleep(backoff)
                         backoff = min(backoff * 2, 30)
                         continue
 
-                    # reset backoff on success
+                    logger.info(
+                        f"First frame received from {camera_id}"
+                    )
+
                     backoff = 1
-                    self.cameras[camera_id]["status"] = "online"
+
+                    cam["status"] = "online"
                     self._save()
 
-                    while cap.isOpened() and self.cameras.get(camera_id, {}).get("enabled", True):
+                    with self.locks[camera_id]:
+                        self.frames[camera_id] = first_frame.copy()
+
+                    failed_reads = 0
+
+                    while True:
+
+                        cam = self.cameras.get(camera_id)
+
+                        if cam is None:
+                            logger.info(
+                                f"Camera {camera_id} removed during capture"
+                            )
+                            break
+
+                        if not cam.get("enabled", True):
+                            logger.info(
+                                f"Camera {camera_id} disabled during capture"
+                            )
+                            break
+
                         ret, frame = cap.read()
+
                         if not ret:
+                            failed_reads += 1
+
+                            if failed_reads >= 100:
+                                logger.warning(
+                                    f"Camera {camera_id} lost stream"
+                                )
+
+                                cam["status"] = "offline"
+                                self._save()
+
+                                break
+
                             time.sleep(0.05)
                             continue
-                        success, buffer = cv2.imencode('.jpg', frame)
-                        if success:
-                            with self.locks[camera_id]:
-                                self.frames[camera_id] = buffer.tobytes()
-                        time.sleep(0.02)
+
+                        failed_reads = 0
+
+                        with self.locks[camera_id]:
+                            self.frames[camera_id] = frame.copy()
 
                     try:
                         cap.release()
                     except Exception:
                         pass
+
                     time.sleep(1)
+
                 except Exception:
-                    logger.exception(f"Camera capture loop failed for {camera_id}")
+                    logger.exception(
+                        f"Camera capture loop failed for {camera_id}"
+                    )
                     time.sleep(2)
 
         t = threading.Thread(target=run, daemon=True)
@@ -218,14 +324,39 @@ class CameraManager:
         except Exception:
             logger.exception("Error stopping capture")
 
-    def get_frame(self, camera_id: str):
+    def get_latest_frame(self, camera_id: str):
         if camera_id not in self.frames:
             return None
         lock = self.locks.get(camera_id)
         if lock:
             with lock:
-                return self.frames.get(camera_id)
-        return self.frames.get(camera_id)
+                frame = self.frames.get(camera_id)
+                return frame.copy() if frame is not None else None
+        frame = self.frames.get(camera_id)
+        return frame.copy() if frame is not None else None
+
+    def get_frame(self, camera_id: str):
+        return self.get_latest_frame(camera_id)
+
+    def wait_for_latest_frame(
+        self,
+        camera_id: str,
+        timeout: float = FIRST_FRAME_TIMEOUT_SECONDS,
+        poll_interval: float = 0.1,
+    ):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            frame = self.get_latest_frame(camera_id)
+            if frame is not None:
+                return frame
+
+            cam = self.cameras.get(camera_id)
+            if cam is None or not cam.get("enabled", True):
+                return None
+
+            time.sleep(poll_interval)
+
+        return None
 
 
 camera_manager = CameraManager()

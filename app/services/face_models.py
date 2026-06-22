@@ -1,4 +1,5 @@
-"""Pluggable face embedding models.
+"""
+Pluggable face embedding models.
 Supports 'facenet' via facenet-pytorch if installed, else falls back to ReID embedding.
 """
 from typing import Any

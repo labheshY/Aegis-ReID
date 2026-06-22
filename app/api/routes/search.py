@@ -10,7 +10,10 @@ router = APIRouter()
 @router.post("/start")
 def start_search_route(request: SearchRequest):
     try:
-        tracker_service.set_search_target(request.target_id)
+        tracker_service.set_search_target(
+            request.target_id,
+            tracking_mode=request.tracking_mode
+        )
     except Exception as exc:
         raise HTTPException(
             status_code=404,
@@ -20,7 +23,8 @@ def start_search_route(request: SearchRequest):
     search = {
         "target_id": request.target_id,
         "started_at": datetime.now().isoformat(),
-        "status": "active"
+        "status": "active",
+        "tracking_mode": request.tracking_mode
     }
     return {
         "success": True,
@@ -57,4 +61,11 @@ def get_search_status_route():
     return {
         "success": True,
         "data": tracker_service.get_search_status()
+    }
+
+@router.get("/matches")
+def get_search_matches_route():
+    return {
+        "success": True,
+        "data": tracker_service.get_search_matches()
     }

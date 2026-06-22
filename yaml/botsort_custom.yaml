@@ -1,0 +1,17 @@
+# Highly optimized BoT-SORT configuration for 10 FPS on older hardware
+tracker_type: botsort
+track_high_thresh: 0.6        # Keeps tracks clean on older system sensors
+track_low_thresh: 0.4         # High baseline limits processing noise
+new_track_thresh: 0.5         # High bar prevents ghost tracks from spawning
+track_buffer: 30              # Keeps lost tracks alive for 3 seconds (30 frames / 10 fps)
+match_thresh: 0.85            # Lenient spatial gate for 5 FPS target position jumps
+fuse_score: True              # Fuses confidence for stabilizing weak object bounds
+
+# Performance Tuning for Old Hardware
+gmc_method: none              # CRITICAL: Saves massive CPU/GPU processing by disabling moving-camera calculation
+
+# High-Performance Internal ReID Setup
+proximity_thresh: 0.5         # Only calculates ReID vectors if frames overlap spatially
+appearance_thresh: 0.8        # Strict visual matching threshold to avoid identity swaps
+with_reid: True               # Enabled: Pairs visual signature with spatial tracking
+model: auto                   # CRITICAL: Reuses native YOLO internal feature maps for 0 extra computer overhead

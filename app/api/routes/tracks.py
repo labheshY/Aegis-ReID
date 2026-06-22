@@ -5,7 +5,6 @@ router = APIRouter()
 
 
 @router.get("")
-@router.get("/")
 def get_tracks():
     return {
         "success": True,

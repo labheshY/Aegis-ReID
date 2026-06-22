@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from typing import Optional
 from app.services.camera_manager import camera_manager
 
 router = APIRouter()
@@ -10,6 +11,15 @@ class CameraModel(BaseModel):
     name: str
     source: str
     enabled: bool = True
+
+
+class CameraUpdateModel(BaseModel):
+    """All fields are optional — only provided fields are applied."""
+    name: Optional[str] = None
+    source: Optional[str] = None
+    enabled: Optional[bool] = None
+    resolution: Optional[str] = None
+    fps: Optional[int] = None
 
 
 @router.get("")
@@ -27,8 +37,11 @@ def add_camera(camera: CameraModel):
 
 
 @router.put("/{camera_id}")
-def update_camera(camera_id: str, updates: dict):
-    cam = camera_manager.update_camera(camera_id, updates)
+def update_camera(camera_id: str, updates: CameraUpdateModel):
+    existing = camera_manager.get_camera(camera_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    cam = camera_manager.update_camera(camera_id, updates.model_dump(exclude_unset=True))
     if cam is None:
         raise HTTPException(status_code=404, detail="Camera not found")
     return {"success": True, "data": cam}
@@ -36,6 +49,9 @@ def update_camera(camera_id: str, updates: dict):
 
 @router.delete("/{camera_id}")
 def delete_camera(camera_id: str):
+    existing = camera_manager.get_camera(camera_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Camera not found")
     camera_manager.remove_camera(camera_id)
     return {"success": True}
 
@@ -45,13 +61,15 @@ def test_camera(camera_id: str):
     cam = camera_manager.get_camera(camera_id)
     if not cam:
         raise HTTPException(status_code=404, detail="Camera not found")
-    # try to start briefly and check frame
+
     camera_manager.start_capture(camera_id)
-    import time
-    time.sleep(0.5)
-    frame = camera_manager.get_frame(camera_id)
+    frame = camera_manager.wait_for_latest_frame(camera_id)
     if frame is None:
-        return {"success": False, "message": "No frame received yet"}
+        status = (camera_manager.get_camera(camera_id) or {}).get("status", "offline")
+        return {
+            "success": False,
+            "message": f"No frame received within startup timeout; camera status is {status}",
+        }
     return {"success": True, "message": "Frame received"}
 
 

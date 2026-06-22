@@ -1,8 +1,6 @@
 import threading
 import time
 from typing import Dict, List
-import cv2
-import numpy as np
 from app.services.face_utils import detect_faces, crop_image
 from app.services.face_models import get_face_model
 from app.services.camera_manager import camera_manager
@@ -40,11 +38,7 @@ class FaceScanner:
 
                 for cam in cams:
                     cid = cam.get('id')
-                    buf = camera_manager.get_frame(cid)
-                    if not buf:
-                        continue
-                    arr = np.frombuffer(buf, dtype='uint8')
-                    frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+                    frame = camera_manager.get_latest_frame(cid)
                     if frame is None:
                         continue
                     rects = detect_faces(frame)
