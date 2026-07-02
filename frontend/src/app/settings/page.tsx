@@ -20,13 +20,29 @@ import { api } from '../../services/api';
 import { fromBackend, toBackend } from "@/lib/settingsMapper";
 import { useUi } from '../../providers/ui-provider';
 
+interface SettingSliderProps {
+  value: number
+  min: number
+  max: number
+  step: number
+  onChange: (value: number) => void
+}
+
+interface SettingNumberProps {
+  label?: string
+  value: number
+  onChange: (value: number) => void
+  min?: number
+  max?: number
+  step?: number
+}
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<any>(null);
   const [exposeByteTrack, setExposeByteTrack] = useState(false);
   const { addToast } = useUi();
   const update = (key: string, value: any) => {
-    setSettings((prev) => ({
+    setSettings((prev: typeof settings) => ({
       ...prev,
       [key]: value,
     }));
@@ -772,7 +788,7 @@ export default function SettingsPage() {
   );
 }
 
-function SettingSlider({ value, min, max, step, onChange }: any) {
+function SettingSlider({ value, min, max, step, onChange }: SettingSliderProps) {
   return (
     <div className="relative flex items-center w-full py-2 pointer-events-auto">
       <input
@@ -812,7 +828,7 @@ function SettingSlider({ value, min, max, step, onChange }: any) {
 
 
 // Place this helper function component near the top or bottom of your page.tsx file
-function SettingNumber({ label, value, onChange, min = 0, max = 9999, step = 1 }) {
+function SettingNumber({ label, value, onChange, min = 0, max = 9999, step = 1 }: SettingNumberProps) {
   const increment = () => {
     const nextVal = (value || 0) + step;
     if (nextVal <= max) onChange(nextVal);
