@@ -39,88 +39,82 @@ function getContainedViewport(containerWidth: number, containerHeight: number) {
   };
 }
 
-function CameraStreamNode({ camId, name, matches }: { camId: string, name: string, matches: any[] }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+function CameraStreamNode({
+  camId,
+  name,
+  matches,
+  streamImgRef,
+  canvasRef,
+  searchIsPlaying,
+  frozenFrame,
+}: {
+  camId: string;
+  name: string;
+  matches: any[];
+  streamImgRef: React.RefObject<HTMLImageElement | null>;
+  canvasRef: React.RefObject<HTMLCanvasElement | null>;
+  searchIsPlaying: boolean;
+  frozenFrame: string | null;
+}) {
+  const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
+    const canvas = overlayCanvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    
+
     const rect = canvas.getBoundingClientRect();
     if (canvas.width !== rect.width || canvas.height !== rect.height) {
       canvas.width = rect.width;
       canvas.height = rect.height;
     }
-    
+
     const width = canvas.width;
     const height = canvas.height;
-    let animationFrameId: number;
 
-    const render = () => {
-      ctx.clearRect(0, 0, width, height);
+    ctx.clearRect(0, 0, width, height);
 
-      matches.forEach((match) => {
-        ctx.strokeStyle = '#ef4444';
-        ctx.lineWidth = 2;
-        
-        const [x1, y1, x2, y2] = match.bbox;
-        
-        const viewport = getContainedViewport(width, height);
-        const x = viewport.x + x1 * viewport.scaleX;
-        const y = viewport.y + y1 * viewport.scaleY;
-        const w = (x2 - x1) * viewport.scaleX;
-        const h = (y2 - y1) * viewport.scaleY;
-        
-        const cornerLen = 14;
-        
-        ctx.beginPath();
-        // Top-left
-        ctx.moveTo(x, y + cornerLen); ctx.lineTo(x, y); ctx.lineTo(x + cornerLen, y);
-        // Top-right
-        ctx.moveTo(x + w - cornerLen, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + cornerLen);
-        // Bottom-left
-        ctx.moveTo(x, y + h - cornerLen); ctx.lineTo(x, y + h); ctx.lineTo(x + cornerLen, y + h);
-        // Bottom-right
-        ctx.moveTo(x + w - cornerLen, y + h); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w, y + h - cornerLen);
-        ctx.stroke();
+    matches.forEach((match) => {
+      ctx.strokeStyle = '#ef4444';
+      ctx.lineWidth = 2;
 
-        // Draw facial scanning mesh line inside the box
-        ctx.strokeStyle = 'rgba(239, 68, 68, 0.2)';
-        ctx.beginPath();
-        ctx.moveTo(x, y + (h / 2) + Math.sin(Date.now() / 150) * (h / 2));
-        ctx.lineTo(x + w, y + (h / 2) + Math.sin(Date.now() / 150) * (h / 2));
-        ctx.stroke();
+      const [x1, y1, x2, y2] = match.bbox;
 
-        // Render crosshair biometric dots on centers
-        ctx.fillStyle = '#ef4444';
-        ctx.beginPath();
-        ctx.arc(x + w / 2, y + h / 2, 2.5, 0, Math.PI * 2);
-        ctx.fill();
+      const viewport = getContainedViewport(width, height);
+      const x = viewport.x + x1 * viewport.scaleX;
+      const y = viewport.y + y1 * viewport.scaleY;
+      const w = (x2 - x1) * viewport.scaleX;
+      const h = (y2 - y1) * viewport.scaleY;
 
-        // Label tag
-        ctx.font = '9px monospace';
-        ctx.fillStyle = '#ef4444';
-        const labelText = `[ TARGET: ${match.alias} | ${Math.round(match.similarity * 100)}% ]`;
-        ctx.fillText(labelText, x, y - 6);
-      });
+      const cornerLen = Math.min(14, w * 0.2, h * 0.2);
 
-      animationFrameId = requestAnimationFrame(render);
-    };
+      ctx.beginPath();
+      // Top-left
+      ctx.moveTo(x, y + cornerLen); ctx.lineTo(x, y); ctx.lineTo(x + cornerLen, y);
+      // Top-right
+      ctx.moveTo(x + w - cornerLen, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + cornerLen);
+      // Bottom-left
+      ctx.moveTo(x, y + h - cornerLen); ctx.lineTo(x, y + h); ctx.lineTo(x + cornerLen, y + h);
+      // Bottom-right
+      ctx.moveTo(x + w - cornerLen, y + h); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w, y + h - cornerLen);
+      ctx.stroke();
 
-    render();
-
-    return () => {
-      cancelAnimationFrame(animationFrameId);
-    };
+      // Label tag
+      ctx.font = 'bold 9px monospace';
+      ctx.fillStyle = '#ef4444';
+      const labelText = `[ TARGET: ${match.alias} | ${Math.round(match.similarity * 100)}% ]`;
+      ctx.fillText(labelText, x, y - 6);
+    });
   }, [matches]);
 
   return (
     <div className="bg-zinc-950 border border-zinc-900 rounded-2xl overflow-hidden shadow-md relative group select-none">
-      <div className="relative aspect-video bg-black">
-        <img src={api.getStreamUrlForCamera(camId)} alt={`Live stream from ${name}`} className="w-full h-full object-contain" draggable={false} />
-        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full z-10 pointer-events-none" />
+      <div className="relative overflow-hidden aspect-video bg-black">
+        <img ref={streamImgRef} crossOrigin="anonymous" src={api.getStreamUrlForCamera(camId)} alt={`Live stream from ${name}`} className="w-full h-full object-contain" draggable={false} />
+        {!searchIsPlaying && frozenFrame && <img src={frozenFrame} alt="" className="absolute inset-0 w-full h-full object-cover z-10 pointer-events-none" />}
+        <canvas ref={canvasRef} className="hidden" />
+        <canvas ref={overlayCanvasRef} className="absolute inset-0 w-full h-full z-[5] pointer-events-none" />
         <div className="absolute inset-2 border border-white/[0.02] pointer-events-none" />
       </div>
       <div className="px-4 py-2.5 bg-zinc-900 border-t border-zinc-800/80 flex items-center justify-between text-[10px] text-zinc-400 font-mono">
@@ -131,6 +125,27 @@ function CameraStreamNode({ camId, name, matches }: { camId: string, name: strin
         </div>
       </div>
     </div>
+  );
+}
+
+function StreamPlaybackControls({
+  searchIsPlaying,
+  onToggle,
+}: {
+  searchIsPlaying: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      onClick={onToggle}
+      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-zinc-400 hover:text-zinc-200 hover:bg-[#1e293b] rounded-md transition-all cursor-pointer"
+    >
+      {searchIsPlaying ? (
+        <><Pause className="w-3.5 h-3.5" /><span className="hidden sm:inline">Pause Streams</span></>
+      ) : (
+        <><Play className="w-3.5 h-3.5" /><span className="hidden sm:inline">Resume Streams</span></>
+      )}
+    </button>
   );
 }
 
@@ -151,14 +166,49 @@ function SearchTrackingPageContent() {
     searchCameras,
     setSearchCameras,
     searchSimilarityFeed,
-    setSearchIsPlaying,
-    searchIsPlaying,
     searchTrackingMode,
     setSearchTrackingMode
   } = useTargets();
   const { addToast } = useUi();
 
   const [faceProfiles, setFaceProfiles] = useState<any[]>([]);
+  const [searchIsPlaying, setSearchIsPlaying] = useState(true);
+  const [frozenFrame, setFrozenFrame] = useState<string | null>(null);
+  const streamImgRef = useRef<HTMLImageElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  const handleStreamPlaybackToggle = () => {
+    if (searchIsPlaying) {
+      try {
+        const img = streamImgRef.current;
+        const canvas = canvasRef.current;
+        if (img && canvas) {
+          canvas.width = img.naturalWidth || img.width;
+          canvas.height = img.naturalHeight || img.height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+          canvas.toBlob((blob) => {
+            if (blob) {
+              const blobUrl = URL.createObjectURL(blob);
+              setFrozenFrame(blobUrl);
+            }
+          }, 'image/jpeg');
+        }
+      } catch (error) {
+        console.warn("CORS/Tainted Canvas fallback activated. Toggling visual freeze state only.", error);
+      }
+    } else {
+      if (frozenFrame) URL.revokeObjectURL(frozenFrame);
+      setFrozenFrame(null);
+    }
+    setSearchIsPlaying(!searchIsPlaying);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (frozenFrame) URL.revokeObjectURL(frozenFrame);
+    };
+  }, [frozenFrame]);
 
   useEffect(() => {
     async function fetchProfiles() {
@@ -248,9 +298,13 @@ function SearchTrackingPageContent() {
     ? selectedFaceTarget?.alias 
     : selectedPersonTarget?.alias;
 
-  const targetSpecificEvents = (selectedPersonTarget || selectedFaceTarget)
-    ? events.filter(e => e.targetId === activeSelectedId || !e.targetId).slice(0, 10)
-    : events.slice(0, 10);
+  // When actively searching, show all events (they're all from the active search context).
+  // When not searching, filter to events for the selected target (or untagged events).
+  const targetSpecificEvents = isSearching
+    ? events.slice(0, 10)
+    : (selectedPersonTarget || selectedFaceTarget)
+      ? events.filter(e => e.targetId === activeSelectedId || !e.targetId).slice(0, 10)
+      : events.slice(0, 10);
 
   const handleSelectPerson = (t: Target) => {
     setSelectedPersonTarget(t);
@@ -329,16 +383,7 @@ function SearchTrackingPageContent() {
                 <span className="hidden sm:inline">{isSidebarOpen ? "Expand Grid" : "Show Stats"}</span>
               </button>
               <div className="h-4 w-[1px] bg-[#1e293b] my-auto mx-1" />
-              <button
-                onClick={() => setSearchIsPlaying(!searchIsPlaying)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-zinc-400 hover:text-zinc-200 hover:bg-[#1e293b] rounded-md transition-all cursor-pointer"
-              >
-                {searchIsPlaying ? (
-                  <><Pause className="w-3.5 h-3.5" /><span className="hidden sm:inline">Pause Streams</span></>
-                ) : (
-                  <><Play className="w-3.5 h-3.5" /><span className="hidden sm:inline">Resume Streams</span></>
-                )}
-              </button>
+              <StreamPlaybackControls searchIsPlaying={searchIsPlaying} onToggle={handleStreamPlaybackToggle} />
             </div>
 
             <div className="relative group">
@@ -391,7 +436,18 @@ function SearchTrackingPageContent() {
                 const camInfo = cameras.find(c => c.id === camId);
                 const name = camInfo?.name || camId;
                 const matches = searchMatches.filter(m => m.camera_id === camId);
-                return <CameraStreamNode key={camId} camId={camId} name={name} matches={matches} />;
+                return (
+                  <CameraStreamNode
+                    key={camId}
+                    camId={camId}
+                    name={name}
+                    matches={matches}
+                    streamImgRef={streamImgRef}
+                    canvasRef={canvasRef}
+                    searchIsPlaying={searchIsPlaying}
+                    frozenFrame={frozenFrame}
+                  />
+                );
               })}
             </div>
           )}
@@ -430,13 +486,15 @@ function SearchTrackingPageContent() {
                         <span className={cn("shrink-0 tracking-wider", badgeClass)}>{badge}</span>
                         <span className={cn("truncate", colorClass)}>
                           {evt.eventType === 'lock' 
-                            ? `ReID Confirmed: ${evt.targetAlias} at ${evt.source} | Similarity: ${Math.round((evt.similarityScore || 0)*100)}%`
+                            ? `ReID Confirmed: ${evt.targetAlias || 'Target'} at ${evt.source}` + (evt.similarityScore ? ` | Similarity: ${Math.round(evt.similarityScore * 100)}%` : '')
                             : evt.eventType === 'lost'
-                              ? `Visual anchor lost for ${evt.targetAlias} at ${evt.source}`
-                              : `Anonymous capture track registered at ${evt.source}`}
+                              ? `Visual anchor lost for ${evt.targetAlias || 'Target'} at ${evt.source}`
+                              : '' /* Removed the generic 'Anonymous capture' default completely */}
                         </span>
                       </div>
-                      <span className="text-zinc-500 shrink-0 font-bold uppercase text-[10px] pl-3">{evt.source.split(' ')[0]}</span>
+                      <span className="text-zinc-500 shrink-0 font-bold uppercase text-[10px] pl-3">
+                        {evt.source?.split(' ')[0] ?? ''}
+                      </span>
                     </div>
                   );
                 })

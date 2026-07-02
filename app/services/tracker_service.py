@@ -38,11 +38,15 @@ class TrackerService:
         self.workers: Dict[str, TrackerWorker] = {}
         
         self.mode = "idle"
+        self.search_active = False
+        self.acquisition_active = False
         self.camera_id = None
 
         self.acquisition_target_id = None
         self.acquisition_last_seen = None
         self.acquisition_timeout = 5  # seconds  
+        self.acquisition_reference_embedding = None
+        self.accepted_embeddings_count = 0
 
         self.tracking_mode = "person"
         self.search_camera_ids = set()
@@ -128,6 +132,9 @@ class TrackerService:
         if tracking_mode and tracking_mode in {"person", "face", "hybrid"}:
             with self.lock:
                 self.tracking_mode = tracking_mode
+                # Bug #3 fix: also push tracking_mode into settings so workers
+                # can read it from their per-frame settings snapshot.
+                self.settings["tracking_mode"] = tracking_mode
             logger.info(f"Tracking mode set to '{tracking_mode}' for search")
 
         with self.lock:
@@ -135,6 +142,7 @@ class TrackerService:
                 self.search_camera_ids = set(camera_ids)
             if target_id == self.loaded_target_id:
                 self.mode = "search"
+                self.search_active = True
                 self.current_search_target = target_id
                 self._start_search_workers()
                 return
@@ -148,12 +156,19 @@ class TrackerService:
                 with worker.lock:
                     worker.track_memory = {}
             self.mode = "search"
+            self.search_active = True
             self._start_search_workers()
         logger.info(f"Successfully loaded payload for target {target_id}")
 
     def _start_search_workers(self):
-        # Start workers for all selected search cameras
-        for cid in self.search_camera_ids:
+        # Bug #2 fix: if no specific cameras were selected, fall back to ALL
+        # registered cameras so search always has at least one worker.
+        camera_ids = self.search_camera_ids or set(camera_manager.cameras.keys())
+        if not camera_ids:
+            logger.warning("No cameras registered — search workers cannot start")
+            return
+        logger.info(f"Starting search workers for cameras: {camera_ids}")
+        for cid in camera_ids:
             camera_manager.start_capture(cid)
             self.start_worker(cid)
 
@@ -165,12 +180,15 @@ class TrackerService:
             for worker in self.workers.values():
                 with worker.lock:
                     worker.search_matches.clear()
-            if self.mode == "search":
-                self.mode = "idle"
+                    worker.track_memory.clear()
+            if self.search_active:
+                self.search_active = False
+                if not self.acquisition_active:
+                    self.mode = "idle"
                 self.stop_all_workers()
         logger.info(f"Search stop for target ID {target_id}")
 
-    def set_acquisition_target(self, track_id: int, alias: str | None = None):
+    def set_acquisition_target(self, track_id: int, alias: str):
         with self.lock:
             logger.info(f"Requested track_id: {track_id}")
             active_tracks = self.get_active_tracks()
@@ -183,7 +201,10 @@ class TrackerService:
                 return None
             self.acquisition_target_id = track_id
             self.acquisition_last_seen = time.time()
+            self.acquisition_reference_embedding = None
+            self.accepted_embeddings_count = 0
             self.mode = "acquisition"
+            self.acquisition_active = True
 
         logger.info(f"Acquisition start for track ID {track_id}")
         self.acquisition_manager.start_acquisition(track_id, alias=alias)
@@ -211,7 +232,7 @@ class TrackerService:
                 self.mode = self.mode if self.mode in ("acquisition", "preview", "search") else "preview"
                 
                 # Stop the worker for the old camera if we're not in search mode
-                if self.mode != "search" and old_camera_id:
+                if not self.search_active and old_camera_id:
                     self.stop_worker(old_camera_id)
 
     def find_track_at_point(self, x: int, y: int):
@@ -232,8 +253,15 @@ class TrackerService:
             logger.warning("Acquisition stopped without enough embeddings")
         with self.lock:
             self.acquisition_target_id = None
-            if self.mode == "acquisition":
-                self.mode = "preview"
+            self.acquisition_reference_embedding = None
+            self.accepted_embeddings_count = 0
+            self.acquisition_last_seen = None
+            if self.acquisition_active:
+                if self.search_active:
+                    self.mode = "search"
+                else:
+                    self.mode = "preview"
+                self.acquisition_active = False
         logger.info(f"Acquisition stop for track ID {target_id}")
         return self.get_acquisition_status()
 
@@ -241,7 +269,7 @@ class TrackerService:
         with self.lock:
             embeddings_count = len(self.acquisition_manager.get_embeddings())
             return {
-                "active": self.mode == "acquisition" and self.acquisition_target_id is not None,
+                "active": self.acquisition_active and self.acquisition_target_id is not None,
                 "track_id": self.acquisition_target_id,
                 "embeddings_count": embeddings_count,
                 "required_embeddings": self.acquisition_manager.max_embeddings,
@@ -258,7 +286,7 @@ class TrackerService:
                         confirmed_tracks.append(track_id)
                         
             return {
-                "active": self.mode == "search" and self.current_search_target is not None,
+                "active": self.search_active and self.current_search_target is not None,
                 "target_id": self.current_search_target,
                 "tracking_mode": self.tracking_mode,
                 "confirmed_tracks": list(set(confirmed_tracks))
@@ -270,6 +298,8 @@ class TrackerService:
             for worker in self.workers.values():
                 with worker.lock:
                     matches.extend(worker.search_matches.values())
+        if matches:
+            logger.info(f"[SEARCH MATCHES] {matches}")
         return matches
 
     def get_status(self):
@@ -294,7 +324,7 @@ class TrackerService:
     def check_acquisition_timeout(self):
         should_stop = False
         with self.lock:
-            if self.mode != "acquisition" or self.acquisition_target_id is None:
+            if not self.acquisition_active or self.acquisition_target_id is None:
                 return
             if self.acquisition_last_seen is None:
                 self.acquisition_last_seen = time.time()

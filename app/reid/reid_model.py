@@ -2,7 +2,11 @@ from PIL import Image
 from torchvision import transforms
 import numpy as np
 import torch
+import warnings
+# Safely silence the torchreid fallback warning 
+warnings.filterwarnings("ignore", message=".*Cython evaluation.*")
 import torchreid
+import time
 
 #Load Pretrained OsNet Model for Person Re-Identification
 model = torchreid.models.build_model(
@@ -30,12 +34,13 @@ def generate_embedding(image_input):
         #Load Image
         image = Image.open(image_input).convert("RGB")
 
+    start = time.perf_counter()
     #Transform Image
     image_tensor = transform(image)
-
     #Add Batch Dimension
     image_tensor = image_tensor.unsqueeze(0)
-
+    
+    start = time.perf_counter()
     #Generate Embedding
     with torch.no_grad():
         embedding = model(image_tensor)

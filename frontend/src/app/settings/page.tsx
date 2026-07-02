@@ -427,7 +427,7 @@ export default function SettingsPage() {
 </section>
 
 
-      <section className="aegis-panel p-6 select-none mt-6">
+<section className="aegis-panel p-6 select-none mt-6">
   {/* Header Section */}
   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/[0.06] pb-4 mb-6">
     <div className="flex items-center gap-2">
@@ -437,28 +437,52 @@ export default function SettingsPage() {
         <p className="text-[10px] font-mono text-zinc-500 uppercase mt-0.5">Re-Identification & Similarity Scoring</p>
       </div>
     </div>
+    <div className="flex items-center gap-3 bg-zinc-950/80 px-3 py-1.5 border border-zinc-900 rounded-xl pointer-events-auto">
+      <div className="space-y-0.5">
+        <span className="text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-wider">
+          Use Soft Decay
+        </span>
+        <span className="text-[10px] font-mono font-bold text-zinc-600 uppercase tracking-tight">
+          Status: {settings.use_soft_decay ? (
+            <span className="text-cyan-400">ENABLED</span>
+          ) : (
+            <span className="text-zinc-500">DISABLED</span>
+          )}
+        </span>
+      </div>
+      <label className="relative inline-flex items-center cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={settings.use_soft_decay || false}
+          onChange={(e) => update("use_soft_decay", e.target.checked)}
+          className="sr-only peer"
+        />
+        <div className="w-8 h-4.5 bg-zinc-900 border border-zinc-800 rounded-full transition-all peer-checked:bg-cyan-950/40 peer-checked:border-cyan-500/50" />
+        <div className="absolute top-[2px] left-[2px] w-2.5 h-2.5 bg-zinc-600 rounded-full transition-all peer-checked:translate-x-3.5 peer-checked:bg-cyan-400 shadow-[0_0_6px_rgba(34,211,238,0.4)]" />
+      </label>
+    </div>
   </div>
 
   {/* Main Balanced 3-Row, 2-Column Master Grid Layout */}
   <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 text-sm font-mono items-stretch">
     
-    {/* MODULE 1: SIMILARITY THRESHOLD SLIDER */}
+    {/* MODULE 1: SEARCH SIMILARITY THRESHOLD SLIDER */}
     <div className="bg-zinc-950/40 border border-zinc-900 rounded-xl p-4 flex flex-col justify-between group hover:border-zinc-800/80 transition-colors pointer-events-auto min-h-[135px]">
       <div className="w-full">
         <div className="flex justify-between items-center mb-3">
           <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block group-hover:text-cyan-400 transition-colors">
-            Similarity Threshold
+            Search Similarity Threshold
           </label>
           <span className="text-xs font-mono font-bold text-cyan-400 bg-cyan-950/30 border border-cyan-900/40 px-2 py-0.5 rounded-[4px]">
-            {Math.round((settings.similarity_threshold || 0.70) * 100)}%
+            {Math.round((settings.search_similarity_threshold || 0.70) * 100)}%
           </span>
         </div>
         <SettingSlider
-          value={settings.similarity_threshold || 0.70}
+          value={settings.search_similarity_threshold || 0.70}
           min={0.30}
           max={0.95}
           step={0.01}
-          onChange={(v) => update("similarity_threshold", v)}
+          onChange={(v) => update("search_similarity_threshold", v)}
         />
       </div>
       <div className="pt-2 text-[9px] text-zinc-500 uppercase tracking-tight font-medium border-t border-white/[0.02]">
@@ -466,7 +490,31 @@ export default function SettingsPage() {
       </div>
     </div>
 
-    {/* MODULE 2: MAXIMUM EMBEDDINGS STEPPER */}
+    {/* MODULE 2: ACQUISITION SIMILARITY THRESHOLD SLIDER */}
+    <div className="bg-zinc-950/40 border border-zinc-900 rounded-xl p-4 flex flex-col justify-between group hover:border-zinc-800/80 transition-colors pointer-events-auto min-h-[135px]">
+      <div className="w-full">
+        <div className="flex justify-between items-center mb-3">
+          <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block group-hover:text-cyan-400 transition-colors">
+            Acquisition Similarity Threshold
+          </label>
+          <span className="text-xs font-mono font-bold text-cyan-400 bg-cyan-950/30 border border-cyan-900/40 px-2 py-0.5 rounded-[4px]">
+            {Math.round((settings.acquisition_similarity_threshold || 0.70) * 100)}%
+          </span>
+        </div>
+        <SettingSlider
+          value={settings.acquisition_similarity_threshold || 0.70}
+          min={0.30}
+          max={0.95}
+          step={0.01}
+          onChange={(v) => update("acquisition_similarity_threshold", v)}
+        />
+      </div>
+      <div className="pt-2 text-[9px] text-zinc-500 uppercase tracking-tight font-medium border-t border-white/[0.02]">
+        Minimum similarity score required to classify a track as a target for acquisition.
+      </div>
+    </div>
+
+    {/* MODULE 3: MAXIMUM EMBEDDINGS STEPPER */}
     <div className="bg-zinc-950/40 border border-zinc-900 rounded-xl p-4 flex flex-col justify-between group hover:border-zinc-800/80 transition-colors pointer-events-auto min-h-[135px]">
       <div className="flex items-center justify-between gap-4 w-full">
         <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block group-hover:text-cyan-400 transition-colors max-w-[200px]">
@@ -489,7 +537,7 @@ export default function SettingsPage() {
       </div>
     </div>
 
-    {/* MODULE 3: REID FRAME INTERVAL STEPPER */}
+    {/* MODULE 4: REID FRAME INTERVAL STEPPER */}
     <div className="bg-zinc-950/40 border border-zinc-900 rounded-xl p-4 flex flex-col justify-between group hover:border-zinc-800/80 transition-colors pointer-events-auto min-h-[135px]">
       <div className="flex items-center justify-between gap-4 w-full">
         <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block group-hover:text-cyan-400 transition-colors max-w-[200px]">
@@ -512,7 +560,7 @@ export default function SettingsPage() {
       </div>
     </div>
 
-    {/* MODULE 4: ACQUISITION FRAME INTERVAL STEPPER */}
+    {/* MODULE 5: ACQUISITION FRAME INTERVAL STEPPER */}
     <div className="bg-zinc-950/40 border border-zinc-900 rounded-xl p-4 flex flex-col justify-between group hover:border-zinc-800/80 transition-colors pointer-events-auto min-h-[135px]">
       <div className="flex items-center justify-between gap-4 w-full">
         <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block group-hover:text-cyan-400 transition-colors max-w-[200px]">
@@ -535,40 +583,10 @@ export default function SettingsPage() {
       </div>
     </div>
 
-    {/* MODULE 5: SOFT DECAY TOGGLE SWITCH */}
-    <div className="bg-zinc-950/40 border border-zinc-900 rounded-xl p-4 flex flex-col justify-between group hover:border-zinc-800/80 transition-colors pointer-events-auto min-h-[135px]">
-      <div className="flex items-center justify-between gap-4 w-full">
-        <div className="space-y-0.5">
-          <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block group-hover:text-cyan-400 transition-colors">
-            Soft Decay
-          </label>
-          <span className="text-[10px] font-mono font-bold text-zinc-600 uppercase tracking-tight">
-            Status: {settings.use_soft_decay ? (
-              <span className="text-cyan-400">ENABLED</span>
-            ) : (
-              <span className="text-zinc-500">DISABLED</span>
-            )}
-          </span>
-        </div>
+    {/* MODULE 6: SOFT DECAY TOGGLE SWITCH */}
+    
 
-        {/* Custom Cyberpunk Toggle Switch */}
-        <label className="relative inline-flex items-center cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={settings.use_soft_decay || false}
-            onChange={(e) => update("use_soft_decay", e.target.checked)}
-            className="sr-only peer"
-          />
-          <div className="w-9 h-5 bg-zinc-950 border border-zinc-800 rounded-full transition-all peer-checked:bg-cyan-950/40 peer-checked:border-cyan-500/50" />
-          <div className="absolute top-[3px] left-[3px] w-3 h-3 bg-zinc-700 rounded-full transition-all peer-checked:translate-x-4 peer-checked:bg-cyan-400 shadow-[0_0_6px_rgba(34,211,238,0.4)]" />
-        </label>
-      </div>
-      <div className="pt-2 text-[9px] text-zinc-500 uppercase tracking-tight font-medium border-t border-white/[0.02]">
-        Gradually reduce confidence of inactive tracks over time.
-      </div>
-    </div>
-
-    {/* MODULE 6: SOFT DECAY RATE SLIDER (Conditional Lockout) */}
+    {/* MODULE 7: SOFT DECAY RATE SLIDER (Conditional Lockout) */}
     <div className={cn(
       "bg-zinc-950/40 border rounded-xl p-4 flex flex-col justify-between min-h-[135px] transition-all duration-300",
       settings.use_soft_decay 
@@ -600,7 +618,7 @@ export default function SettingsPage() {
   </div>
 </section>
 
-      <section className="aegis-panel p-6 select-none mt-6">
+<section className="aegis-panel p-6 select-none mt-6">
   {/* Header Section */}
   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/[0.06] pb-4 mb-6">
     <div className="flex items-center gap-2">

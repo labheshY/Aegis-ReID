@@ -71,7 +71,8 @@ class TrackerWorker:
             frame = cv2.resize(frame, (self.width, self.height))
             
             with self.tracker_service.lock:
-                mode = self.tracker_service.mode
+                acquisition = self.tracker_service.acquisition_active
+                search = self.tracker_service.search_active
                 settings = self.tracker_service.settings.copy()
                 acquisition_target_id = self.tracker_service.acquisition_target_id
                 search_target_id = self.tracker_service.current_search_target
@@ -111,20 +112,26 @@ class TrackerWorker:
                         "camera_id": self.camera_id
                     }
                     
-                    if mode == "acquisition" and acquisition_target_id == track_id:
-                        self.tracker_service.acquisition_last_seen = time.time()
+                    if acquisition:
                         if (
                             conf > float(settings["min_box_confidence"])
                             and box_width > int(settings["min_box_width"])
                             and box_height > int(settings["min_box_height"])
                         ):
-                            perf = {"reid_ms": 0.0}
-                            self._collect_acquisition_embedding(
-                                frame, x1, y1, x2, y2, conf, track_id, settings, perf=perf
-                            )
-                            reid_ms += perf["reid_ms"]
+                            should_collect = False
+                            if self.tracker_service.acquisition_reference_embedding is None:
+                                should_collect = (acquisition_target_id == track_id)
+                            else:
+                                should_collect = True
 
-                    if mode == "search" and search_target_id:
+                            if should_collect:
+                                perf = {"reid_ms": 0.0}
+                                self._collect_acquisition_embedding(
+                                    frame, x1, y1, x2, y2, conf, track_id, settings, perf=perf
+                                )
+                                reid_ms += perf["reid_ms"]
+
+                    if search and search_target_id:
                         if (
                             conf > settings["min_box_confidence"] and
                             box_width > settings["min_box_width"] and
@@ -158,31 +165,61 @@ class TrackerWorker:
                 )
 
     def _collect_acquisition_embedding(self, frame, x1, y1, x2, y2, conf, track_id, settings, perf=None):
-        self.tracker_service.acquisition_last_seen = time.time()
         if self.tracker_service.acquisition_manager.acquisition_complete:
             with self.tracker_service.lock:
                 self.tracker_service.acquisition_target_id = None
+                self.tracker_service.acquisition_reference_embedding = None
+                self.tracker_service.accepted_embeddings_count = 0
                 self.tracker_service.mode = "idle"
+                self.tracker_service.acquisition_active = False
             logger.info(f"Target creation complete for track {track_id}")
-            return
+            return False
 
         with self.lock:
             frame_count = self.frame_count
             
         if frame_count % int(settings["acquisition_frame_interval"]) != 0:
-            return
+            return False
 
         crop = frame[y1:y2, x1:x2]
 
         if conf > self.tracker_service.acquisition_manager.best_preview_confidence:
-            PREVIEWS_DIR.mkdir(parents=True, exist_ok=True)
-            preview_path = PREVIEWS_DIR / f"preview_{track_id}.jpg"
-            self.tracker_service.acquisition_manager.payload["preview_image_path"] = str(preview_path)
+            from app.core.config import ACQUISITION_PREVIEWS_DIR
+            ACQUISITION_PREVIEWS_DIR.mkdir(parents=True, exist_ok=True)
+            alias = self.tracker_service.acquisition_manager.payload.get("alias")
+            if not alias:
+                alias = f"target_{track_id}"
+            
+            preview_path = ACQUISITION_PREVIEWS_DIR / f"{alias}.jpg"
+            self.tracker_service.acquisition_manager.payload["preview_image_path"] = f"/previews/acquisition/{alias}.jpg"
             cv2.imwrite(str(preview_path), crop)
             self.tracker_service.acquisition_manager.best_preview_confidence = conf
 
         embed_start = time.perf_counter()
         embedding = generate_embedding(crop)
+        similarity = 0.0
+
+        if self.tracker_service.acquisition_reference_embedding is None:
+            self.tracker_service.acquisition_reference_embedding = embedding
+            self.tracker_service.acquisition_last_seen = time.time()
+            self.tracker_service.accepted_embeddings_count = 1
+            logger.info("Reference embedding initialized")
+            self.tracker_service.acquisition_manager.add_embedding(embedding)
+            return True
+        else:
+            similarity = cosine_similarity(embedding, self.tracker_service.acquisition_reference_embedding)
+            logger.info(f"Acquisition similarity = {similarity:.2f}")
+
+        if similarity < settings["acquisition_similarity_threshold"]:
+            return False
+        
+        self.tracker_service.acquisition_last_seen = time.time()
+        self.tracker_service.acquisition_reference_embedding = (
+                (self.tracker_service.acquisition_reference_embedding * 
+                self.tracker_service.accepted_embeddings_count + embedding)/
+                (self.tracker_service.accepted_embeddings_count + 1)
+            )
+        self.tracker_service.accepted_embeddings_count += 1
         embedding_ms = (
             time.perf_counter() - embed_start
         ) * 1000
@@ -194,6 +231,7 @@ class TrackerWorker:
         if perf is not None:
             perf["reid_ms"] += (time.perf_counter() - embed_start) * 1000
         self.tracker_service.acquisition_manager.add_embedding(embedding)
+        return True
 
     def _run_reid_search(self, frame, x1, y1, x2, y2, track_id, settings, perf=None):
         with self.lock:
@@ -246,19 +284,26 @@ class TrackerWorker:
         else:
             similarity_score = body_score
 
-        threshold = float(settings["similarity_threshold"])
+        threshold = float(settings["search_similarity_threshold"])
         if tracking_mode == "face":
-            threshold = float(settings.get("face_threshold", settings["similarity_threshold"]))
+            threshold = float(settings.get("face_threshold", settings["search_similarity_threshold"]))
 
         with self.lock:
-            if similarity_score > threshold:
+            if similarity_score >= threshold:
                 self.track_memory[track_id] = self.track_memory.get(track_id, 0) + 1
                 logger.info(
                     f"[{tracking_mode.upper()}] Track {track_id} matched "
                     f"score={similarity_score:.2f} hits={self.track_memory[track_id]}"
                 )
+                logger.info(f"Threshold={threshold}")
+                logger.info(f"Confirmation={settings['target_confirmation']}")
+                logger.info(f"Hits={self.track_memory[track_id]}")
                 
-                if self.track_memory[track_id] > int(settings["target_confirmation"]):
+                if self.track_memory[track_id] >= int(settings["target_confirmation"]):
+                    logger.warning(f"[CONFIRMED] Track {track_id}"
+                                f"camera={self.camera_id} "
+                                f"hits={self.track_memory[track_id]}"
+                            )
                     alias = self.tracker_service.acquisition_manager.payload.get("alias", "Unknown")
                     self.search_matches[track_id] = {
                         "track_id": track_id,

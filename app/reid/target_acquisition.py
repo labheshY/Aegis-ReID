@@ -15,19 +15,19 @@ class TargetAcquisitionManager:
         self.payload = {}
         self.best_preview_confidence = 0.0
 
-    def start_acquisition(self, track_id, alias=None):
+    def start_acquisition(self, track_id, alias: str):
         self.selected_target_id = track_id
         self.target_embeddings = []
         self.acquisition_complete = False
         self.best_preview_confidence = 0.0
         self.payload = {
-            "target_id": track_id,
+            "target_id": alias,
             "alias": alias,
             "created_at": datetime.now().isoformat(),
             "preview_image_path": None,
             "status": "idle"
         }
-        logger.info(f"Started acquisition for track ID {track_id}")
+        logger.info(f"Started acquisition for track ID {track_id} with alias {alias}")
 
     def add_embedding(self, embedding):
         if self.acquisition_complete:
@@ -79,6 +79,7 @@ class TargetAcquisitionManager:
             logger.warning(f"Cannot finalize acquisition for {self.selected_target_id} - not enough embeddings")
             return False
         self.acquisition_complete = True
-        self.save_payload(self.payload_dir / f"target_{self.selected_target_id}.pt")
-        logger.info(f"Finalized acquisition with {len(self.target_embeddings)} embeddings for {self.selected_target_id}")
+        alias = self.payload.get("alias")
+        self.save_payload(self.payload_dir / f"target_{alias}.pt")
+        logger.info(f"Finalized acquisition with {len(self.target_embeddings)} embeddings for {alias}")
         return True

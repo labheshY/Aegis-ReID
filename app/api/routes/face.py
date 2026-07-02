@@ -12,7 +12,7 @@ router = APIRouter()
 
 
 @router.post("/enroll/multi")
-async def enroll_multi(front: UploadFile | None = None, left: UploadFile | None = None, right: UploadFile | None = None, up: UploadFile | None = None, down: UploadFile | None = None, alias: str | None = Form(None)):
+async def enroll_multi(alias: str = Form(...), front: UploadFile | None = None, left: UploadFile | None = None, right: UploadFile | None = None, up: UploadFile | None = None, down: UploadFile | None = None):
     files = {}
     if front: files['front'] = front
     if left: files['left'] = left
@@ -28,7 +28,7 @@ async def enroll_multi(front: UploadFile | None = None, left: UploadFile | None 
 
 
 @router.post("/enroll/single")
-async def enroll_single(file: UploadFile, alias: str | None = Form(None)):
+async def enroll_single(file: UploadFile, alias: str = Form(...)):
     profile = face_service.enroll_single(file, alias=alias)
     return {"success": True, "data": profile}
 

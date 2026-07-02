@@ -69,3 +69,20 @@ def get_search_matches_route():
         "success": True,
         "data": tracker_service.get_search_matches()
     }
+
+# Dummy response kept for reference / offline testing:
+# @router.get("/matches")
+# def get_search_matches_route():
+#     return {
+#         "success": True,
+#         "data": [
+#             {
+#                 "track_id": 999,
+#                 "camera_id": "CAM-01",
+#                 "bbox": [100, 100, 300, 300],
+#                 "alias": "TEST_TARGET",
+#                 "similarity": 0.95,
+#                 "status": "confirmed"
+#             }
+#         ]
+#     }

@@ -19,11 +19,7 @@ def build_target_response(data):
         "id": str(metadata.get("target_id")),
         "alias": metadata.get("alias"),
         "created_at": metadata.get("created_at"),
-        "previewImagePath": (
-            f"/previews/{Path(preview_path).name}"
-            if preview_path
-            else None
-        ),
+        "previewImagePath": preview_path,
         "embeddingsCount": len(data["embeddings"]),
         "status": metadata.get("status", "idle")
     }
@@ -111,3 +107,41 @@ def load_target_payload(target_id: str):
         logger.warning(f"Error loading target {target_id} payload: {e}", exc_info=True)
         raise TargetNotFoundException(target_id)
     return data
+
+
+# ---------------------------------------------------------------------------
+# TODO: Switch to alias-based payload loading when all .pt files are saved
+#       under the alias filename (i.e. target_{alias}.pt).
+#
+# To enable:
+#   1. Uncomment the function below.
+#   2. Replace calls to load_target_payload(target_id) in:
+#        - target_acquisition.py  → load_payload(target_id)
+#        - tracker_service.py     → acquisition_manager.load_payload(target_id)
+#      with load_target_payload_by_alias(alias) after resolving the alias from
+#      the target metadata or passing it from the route.
+# ---------------------------------------------------------------------------
+#
+# def load_target_payload_by_alias(alias: str):
+#     """
+#     Load a target payload using the alias as the filename key.
+#     New acquisitions are saved as  target_{alias}.pt  (see finalize_acquisition).
+#     This function is the matching loader for that convention.
+#     """
+#     if not os.path.exists(PAYLOAD_DIR):
+#         logger.warning(f"Payload directory {PAYLOAD_DIR} does not exist")
+#         raise TargetNotFoundException(alias)
+#
+#     file_path = PAYLOAD_DIR / f"target_{alias}.pt"
+#     if not file_path.exists():
+#         logger.warning(f"Alias payload file not found: {file_path}")
+#         raise TargetNotFoundException(alias)
+#
+#     try:
+#         data = torch.load(file_path, weights_only=False)
+#         logger.info(f"Loaded payload for alias '{alias}'")
+#     except Exception as e:
+#         logger.warning(f"Error loading alias payload '{alias}': {e}", exc_info=True)
+#         raise TargetNotFoundException(alias)
+#
+#     return data

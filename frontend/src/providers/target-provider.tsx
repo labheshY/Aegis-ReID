@@ -53,16 +53,9 @@ export const TargetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [searchIsPlaying, setSearchIsPlaying] = useState(true);
   const [searchTrackingMode, setSearchTrackingMode] = useState<'face' | 'person' | 'hybrid'>('person');
 
-  // Refs for loop integration
-  const targetsRef = useRef<Target[]>([]);
-  const camerasRef = useRef<Camera[]>([]);
-  const activeSearchIdsRef = useRef<string[]>([]);
   // Track whether the very first load has completed
   const isInitialLoadRef = useRef(true);
 
-  useEffect(() => { targetsRef.current = targets; }, [targets]);
-  useEffect(() => { camerasRef.current = cameras; }, [cameras]);
-  useEffect(() => { activeSearchIdsRef.current = activeSearchIds; }, [activeSearchIds]);
   // Load and refresh state
 
   const loadData = useCallback(async () => {
@@ -117,6 +110,37 @@ export const TargetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }, 5000);
     return () => clearInterval(pollInterval);
   }, [loadData]);
+
+  // Periodic polling for events (synthesizing from matches)
+  useEffect(() => {
+    if (activeSearchIds.length === 0) return;
+    const eventsInterval = setInterval(async () => {
+      try {
+        const res = await api.getSearchMatches();
+        if (res.success && res.data && res.data.length > 0) {
+          const currentTargetId = activeTargetId;
+          const newEvents = res.data.map((match: any) => ({
+            id: `EVT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            timestamp: new Date().toISOString(),
+            targetId: currentTargetId ?? activeSearchIds[0] ?? 'unknown',
+            targetAlias: match.alias || 'Unknown',
+            source: match.camera_id || 'Unknown Camera',
+            eventType: match.status === 'confirmed' ? 'lock' : 'detection',
+            confidence: match.similarity || 0.8,
+            similarityScore: match.similarity
+          }));
+          
+          setEvents(prev => {
+            const combined = [...newEvents, ...prev];
+            return combined.slice(0, 100); // keep last 100 events
+          });
+        }
+      } catch (err) {
+        // silent fail
+      }
+    }, 2000);
+    return () => clearInterval(eventsInterval);
+  }, [activeTargetId, activeSearchIds]);
 
   const refreshTargets = useCallback(async () => {
     try {
@@ -238,84 +262,6 @@ export const TargetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       localStorage.setItem('reid_events', JSON.stringify([]));
     }
   }, []);
-
-  // Real-time Simulation Loop
-  useEffect(() => {
-    const intervalTime = 8000; // Generate tracking feeds every 8 seconds
-    
-    const interval = setInterval(() => {
-      const currentTargets = targetsRef.current;
-      const currentCameras = camerasRef.current;
-      const currentActiveSearchIds = activeSearchIdsRef.current;
-      
-      if (currentTargets.length === 0 || currentCameras.length === 0) return;
-
-      // Filter simulation to only match targets that are actively being searched on the backend!
-      // This maps simulation locks exactly to backend state!
-      const activeTargets = currentTargets.filter(t => currentActiveSearchIds.includes(t.id));
-      
-      // Call mock dynamic generator helper
-      // If we have active targets, mock matching one of them. Otherwise, generate general movement
-      let newEvent: TrackingEvent;
-      const onlineCameras = currentCameras.filter(c => c.status === 'online');
-      const selectedCamera = onlineCameras[Math.floor(Math.random() * onlineCameras.length)] || { name: 'Main corridor' };
-      const timestamp = new Date().toISOString();
-      const id = `EVT-${Math.floor(Math.random() * 100000)}`;
-
-      const shouldMatch = Math.random() < 0.6 && activeTargets.length > 0;
-
-      if (shouldMatch) {
-        const target = activeTargets[Math.floor(Math.random() * activeTargets.length)];
-        newEvent = {
-          id,
-          timestamp,
-          targetId: target.id,
-          targetAlias: target.alias,
-          source: selectedCamera.name,
-          eventType: "lock",
-          confidence: 0.88 + Math.random() * 0.1,
-          similarityScore: 0.86 + Math.random() * 0.12
-        };
-
-        // Flash match toast
-        addToast({
-          title: `TARGET REID LOCK [${Math.round((newEvent.similarityScore || 0) * 100)}%]`,
-          description: `${newEvent.targetAlias} matched at ${newEvent.source}`,
-          type: "red-lock",
-          duration: 3500
-        });
-
-      } else {
-        // Normal general motion
-        newEvent = {
-          id,
-          timestamp,
-          source: selectedCamera.name,
-          eventType: "detection",
-          confidence: 0.70 + Math.random() * 0.25
-        };
-
-        // Flash green track toast
-        addToast({
-          title: `Subject Tracked`,
-          description: `Movement registered at ${newEvent.source}`,
-          type: "green-tracking",
-          duration: 1800
-        });
-      }
-
-      setEvents(prevEvents => {
-        const updated = [newEvent, ...prevEvents].slice(0, 80);
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('reid_events', JSON.stringify(updated));
-        }
-        return updated;
-      });
-
-    }, intervalTime);
-
-    return () => clearInterval(interval);
-  }, [addToast]);
 
   return (
     <TargetContext.Provider

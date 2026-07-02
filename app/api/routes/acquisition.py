@@ -21,6 +21,22 @@ def start_acquisition(request: AcquisitionStartRequest):
             )
         )
 
+    if not request.alias:
+        raise HTTPException(
+            status_code=400,
+            detail="Alias is required for acquisition."
+        )
+
+    from app.services.payload_service import load_all_payloads
+    existing_targets = load_all_payloads()
+    for t in existing_targets:
+        if t.alias == request.alias:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Alias '{request.alias}' is already in use by another ReID target."
+            )
+
+
     # If the tracker isn't producing active tracks, return a helpful 503
     try:
         active = tracker_service.get_active_tracks()

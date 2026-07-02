@@ -5,12 +5,14 @@ from pathlib import Path
 from typing import Dict, Optional
 import cv2
 import numpy as np
+import shutil
 from app.core.config import BASE_DIR
 from app.core.logger import logger
 from app.services.secret_store import secret_store
 
 
 CAMERAS_FILE = Path(BASE_DIR) / "data" / "runtime" / "cameras.json"
+BACKUP_FILE = Path(BASE_DIR) / "data" / "runtime" / "cameras.json.bak"
 FIRST_FRAME_TIMEOUT_SECONDS = 10
 
 
@@ -26,46 +28,134 @@ class CameraManager:
         self._load()
 
     def _load(self):
-        if CAMERAS_FILE.exists():
-            try:
+        backup_file = BACKUP_FILE
+
+        try:
+            if CAMERAS_FILE.exists():
                 with open(CAMERAS_FILE, "r", encoding="utf-8") as fh:
                     data = json.load(fh)
+
+                self.cameras = {c["id"]: c for c in data}
+                logger.info(
+                    f"Loaded {len(self.cameras)} cameras "
+                    f"from primary configuration."
+                )
+
+            else:
+                self.cameras = {}
+                return
+
+        except Exception:
+            logger.exception(
+                "Failed to load primary cameras file. "
+                "Attempting recovery from backup."
+            )
+
+            try:
+                if backup_file.exists():
+                    with open(backup_file, "r", encoding="utf-8") as fh:
+                        data = json.load(fh)
+
                     self.cameras = {c["id"]: c for c in data}
-                    # If secret_store available, migrate any plaintext sources containing credentials
-                    if secret_store:
-                        changed = False
-                        for cid, c in list(self.cameras.items()):
-                            src = c.get("source")
-                            if isinstance(src, str) and '@' in src and '://' in src:
-                                try:
-                                    enc = secret_store.encrypt(src)
-                                    c["_encrypted_source"] = enc
-                                    # Replace stored source with masked value for safety
-                                    def mask(s: str):
-                                        try:
-                                            parts = s.split('://', 1)
-                                            proto, rest = parts[0], parts[1]
-                                            if '@' in rest:
-                                                auth, tail = rest.split('@', 1)
-                                                return f"{proto}://{auth.split(':')[0]}:*****@{tail}"
-                                        except Exception:
-                                            pass
-                                        return s
-                                    c["source"] = mask(src)
-                                    changed = True
-                                except Exception:
-                                    logger.exception("Failed to encrypt camera source on load")
-                        if changed:
-                            self._save()
+
+                    logger.warning(
+                        f"Recovered {len(self.cameras)} cameras "
+                        f"from backup configuration."
+                    )
+
+                    # Restore recovered configuration back to primary
+                    self._save()
+
+                else:
+                    logger.warning(
+                        "Camera backup file not found. "
+                        "Starting with empty camera list."
+                    )
+                    self.cameras = {}
+
             except Exception:
-                logger.exception("Failed to load cameras file")
+                logger.exception(
+                    "Backup recovery failed. "
+                    "Starting with empty camera list."
+                )
+                self.cameras = {}
+
+        # Existing encryption migration logic
+        try:
+            if secret_store:
+                changed = False
+
+                for cid, c in list(self.cameras.items()):
+                    src = c.get("source")
+
+                    if (
+                        isinstance(src, str)
+                        and '@' in src
+                        and '://' in src
+                    ):
+                        try:
+                            enc = secret_store.encrypt(src)
+                            c["_encrypted_source"] = enc
+
+                            def mask(s: str):
+                                try:
+                                    proto, rest = s.split('://', 1)
+
+                                    if '@' in rest:
+                                        auth, tail = rest.split('@', 1)
+
+                                        return (
+                                            f"{proto}://"
+                                            f"{auth.split(':')[0]}"
+                                            f":*****@{tail}"
+                                        )
+                                except Exception:
+                                    pass
+
+                                return s
+
+                            c["source"] = mask(src)
+                            changed = True
+
+                        except Exception:
+                            logger.exception(
+                                "Failed to encrypt camera source on load"
+                            )
+
+                if changed:
+                    self._save()
+
+        except Exception:
+            logger.exception(
+                "Camera migration step failed"
+            )
 
     def _save(self):
+        backup_file = CAMERAS_FILE.with_suffix(".json.bak")
+
         try:
-            with open(CAMERAS_FILE, "w", encoding="utf-8") as fh:
-                json.dump(list(self.cameras.values()), fh, indent=2)
+            if CAMERAS_FILE.exists():
+                shutil.copy2(
+                    CAMERAS_FILE,
+                    backup_file
+                )
+
+            with open(
+                CAMERAS_FILE,
+                "w",
+                encoding="utf-8"
+            ) as fh:
+                json.dump(
+                    list(self.cameras.values()),
+                    fh,
+                    indent=2,
+                    ensure_ascii=False
+                )
+
         except Exception:
-            logger.exception("Failed to save cameras file")
+            logger.exception(
+                "Failed to save camera configuration."
+            )
 
     def list_cameras(self):
         # Return a sanitized copy of cameras for API responses (mask credentials)

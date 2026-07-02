@@ -108,18 +108,18 @@ export default function DashboardPage() {
       </div>
 
       {/* Parent Flex Column Box Container */}
-      <div className="space-y-4 w-full h-full">
+      <div className="space-y-4 w-full min-h-0">
         
         {/* Terminal Layout Grid Core */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 min-h-[480px] h-[calc(100vh-240px)] pointer-events-auto">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 lg:min-h-[480px] lg:h-[calc(100vh-240px)] lg:overflow-hidden pointer-events-auto">
           
           {/* COLUMN 1 (5/12 Width): RECENT DETECTIONS TERMINAL CHANNEL */}
-          <div className="lg:col-span-5 h-full flex flex-col min-w-0">
+          <div className="lg:col-span-5 h-[480px] lg:h-full min-h-0 overflow-hidden flex flex-col min-w-0">
             <RecentDetections />
           </div>
 
           {/* COLUMN 2 (7/12 Width): LIVE ACTIVITY FEED ENGINE TRACK */}
-          <div className="lg:col-span-7 h-full flex flex-col min-w-0">
+          <div className="lg:col-span-7 h-[480px] lg:h-full min-h-0 overflow-hidden flex flex-col min-w-0">
             <ActivityFeed />
           </div>
           

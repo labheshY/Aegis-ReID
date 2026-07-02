@@ -9,6 +9,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 EMBEDDINGS_DIR = BASE_DIR / "data" / "embeddings"
 
 PREVIEWS_DIR = BASE_DIR / "data" / "previews"
+FACES_PREVIEWS_DIR = PREVIEWS_DIR / "faces"
+ACQUISITION_PREVIEWS_DIR = PREVIEWS_DIR / "acquisition"
 
 OUTPUTS_DIR = BASE_DIR / "outputs"
 
@@ -32,7 +34,8 @@ DEFAULT_TRACKER_SETTINGS = {
     "min_box_confidence": float(os.getenv("MIN_BOX_CONFIDENCE", 0.7)),
     "min_box_width": int(os.getenv("MIN_BOX_WIDTH", 80)),
     "min_box_height": int(os.getenv("MIN_BOX_HEIGHT", 120)),
-    "similarity_threshold": float(os.getenv("SIMILARITY_THRESHOLD", 0.7)),
+    "search_similarity_threshold": float(os.getenv("SEARCH_SIMILARITY_THRESHOLD", 0.7)),
+    "acquisition_similarity_threshold": float(os.getenv("ACQUISITION_SIMILARITY_THRESHOLD", 0.7)),
     "target_confirmation": int(os.getenv("TARGET_CONFIRMATION", 8)),
     "acquisition_frame_interval": int(os.getenv("ACQUISITION_FRAME_INTERVAL", 5)),
     "reid_frame_interval": int(os.getenv("REID_FRAME_INTERVAL", 3)),
