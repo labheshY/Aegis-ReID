@@ -325,7 +325,7 @@ The purpose of this project is to demonstrate the underlying computer vision arc
 # Installation
 
 ```bash
-git clone https://github.com/<username>/aegis-reid.git
+git clone https://github.com/labheshY/Aegis-ReID.git
 
 cd aegis-reid
 
