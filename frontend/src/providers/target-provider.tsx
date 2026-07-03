@@ -119,7 +119,7 @@ export const TargetProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         const res = await api.getSearchMatches();
         if (res.success && res.data && res.data.length > 0) {
           const currentTargetId = activeTargetId;
-          const newEvents = res.data.map((match: any) => ({
+          const newEvents: TrackingEvent[] = res.data.map((match: any) => ({
             id: `EVT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
             timestamp: new Date().toISOString(),
             targetId: currentTargetId ?? activeSearchIds[0] ?? 'unknown',
