@@ -14,7 +14,8 @@ import {
   X,
   FileText,
   ScanFace,
-  ChevronDown
+  ChevronDown,
+  Tag
 } from 'lucide-react';
 import { useTargets } from '../../providers/target-provider';
 import { AvatarCrop } from '../../components/ui/avatar-crop';
