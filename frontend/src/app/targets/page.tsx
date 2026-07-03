@@ -32,7 +32,8 @@ export default function TargetGalleryPage() {
     deleteTarget, 
     updateTargetDetails,
     activeSearchIds,
-    stopSearch
+    stopSearch,
+    startSearch
   } = useTargets();
 
   // Search & Filter State
